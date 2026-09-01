@@ -1,0 +1,11 @@
+Django==5.2.17
+djangorestframework==3.18.0
+drf-spectacular==0.30.0
+django-filter==26.1
+python-dotenv==1.2.3
+PyMySQL==1.2.0
+# Alternative MySQL driver — faster, but compiles against libmysqlclient.
+# Install it instead of PyMySQL if you have Homebrew's mysql-client:
+#   brew install mysql-client pkg-config
+#   export PKG_CONFIG_PATH="$(brew --prefix mysql-client)/lib/pkgconfig"
+#   pip install mysqlclient

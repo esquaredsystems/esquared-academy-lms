@@ -1,0 +1,35 @@
+# MySQL 8.4 for local development.
+#
+# Django 5.2 requires MySQL 8.0.11+, and the CHECK constraints in
+# app/models.py are only enforced from 8.0.16. This runs a modern server on
+# port 3307 so it sits alongside an existing MySQL on 3306 without touching
+# it — point MYSQL_PORT at 3307 in .env.
+#
+#   docker compose up -d db      start
+#   docker compose logs -f db    watch it come up
+#   docker compose down          stop (data survives in the named volume)
+#   docker compose down -v       stop and delete the data
+
+services:
+  db:
+    image: mysql:8.4
+    container_name: esquared-mysql
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-jingle94}
+      MYSQL_DATABASE: ${MYSQL_DB:-esquared_lms}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_PASSWORD:-jingle94}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - esquared_mysql_data:/var/lib/mysql
+
+volumes:
+  esquared_mysql_data:
