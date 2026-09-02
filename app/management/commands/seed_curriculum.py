@@ -124,22 +124,13 @@ class Command(BaseCommand):
         topics = {}
         for (subject_code, stage), entry in seed_data.TOPICS.items():
             subject = subjects[subject_code]
-            for order, (code, title) in enumerate(entry["topics"], start=1):
-                short_name = f"{stage}-{code}"
-                description = entry["source"]
-                if entry.get("note"):
-                    description = f"{description}\n\n{entry['note']}"
-                topics[(subject_code, stage, code)] = self._upsert(
-                    models.Topic, "topic",
-                    {
-                        "full_name": title,
-                        "id_number": f"{subject.id_number}-{stage}-{code}",
-                        "description": description,
-                        "sort_order": order,
-                        "created_by": user,
-                    },
-                    subject=subject, short_name=short_name,
-                )
+            description = entry["source"]
+            if entry.get("note"):
+                description = f"{description}\n\n{entry['note']}"
+            self._seed_topics(
+                entry["topics"], subject, subject_code, stage, description,
+                user, topics, parent=None,
+            )
 
         # One syllabus per subject per grade per year, carrying that stage's
         # topics in teaching order.
@@ -162,12 +153,39 @@ class Command(BaseCommand):
                 entry = seed_data.TOPICS.get((subject_code, stage))
                 if not entry:
                     continue  # e.g. Islamiyat and Urdu at Lower Secondary
-                for order, (code, _title) in enumerate(entry["topics"], start=1):
+                # Only the top level is listed on the syllabus; children are
+                # reached through their parent.
+                for order, row in enumerate(entry["topics"], start=1):
                     self._upsert(
                         models.SyllabusTopic, "syllabus_topic",
                         {"sort_order": order, "created_by": user},
-                        syllabus=syllabus, topic=topics[(subject_code, stage, code)],
+                        syllabus=syllabus, topic=topics[(subject_code, stage, row[0])],
                     )
+
+    def _seed_topics(self, rows, subject, subject_code, stage, description,
+                     user, topics, parent):
+        """Create a level of the topic tree, then recurse into its children."""
+        for order, row in enumerate(rows, start=1):
+            code, title = row[0], row[1]
+            children = row[2] if len(row) > 2 else ()
+            topic = self._upsert(
+                models.Topic, "topic",
+                {
+                    "full_name": title,
+                    "id_number": f"{subject.id_number}-{stage}-{code}",
+                    "description": description,
+                    "sort_order": order,
+                    "parent": parent,
+                    "created_by": user,
+                },
+                subject=subject, short_name=f"{stage}-{code}",
+            )
+            topics[(subject_code, stage, code)] = topic
+            if children:
+                self._seed_topics(
+                    children, subject, subject_code, stage, description,
+                    user, topics, parent=topic,
+                )
 
     # -- output --------------------------------------------------------
     def _report(self, year, dry_run):

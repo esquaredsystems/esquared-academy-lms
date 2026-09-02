@@ -1,0 +1,308 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Knowledge graph · {{ block.super }}{% endblock %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <style>
+    .kg-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 16px;
+      margin: 0 0 18px;
+    }
+    .kg-controls label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+      color: var(--ac-ink-2, #41505d);
+    }
+    .kg-controls select { min-width: 280px; }
+    .kg-actions { display: flex; gap: 8px; }
+    .kg-meta {
+      margin-left: auto;
+      font-size: 13px;
+      color: var(--ac-ink-2, #41505d);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Both scrolls live here: the SVG is drawn at its natural size and
+       this box scrolls in either direction. */
+    .kg-canvas {
+      position: relative;
+      overflow: auto;
+      max-height: 74vh;
+      min-height: 420px;
+      border: 1px solid var(--ac-line, #d8ded9);
+      border-radius: 6px;
+      background:
+        radial-gradient(circle at 1px 1px, rgba(0, 0, 0, .07) 1px, transparent 0) 0 0 / 22px 22px,
+        var(--ac-card, #fff);
+      resize: vertical;
+    }
+    .kg-canvas svg { display: block; }
+
+    .kg-link {
+      fill: none;
+      stroke: var(--ac-line-strong, #b7c1c9);
+      stroke-width: 1.5px;
+    }
+    .kg-node { cursor: pointer; }
+    .kg-node circle {
+      stroke-width: 2px;
+      stroke: var(--ac-card, #fff);
+    }
+    .kg-node text {
+      font-size: 13px;
+      fill: var(--ac-ink, #1f2a33);
+      paint-order: stroke;
+      stroke: var(--ac-card, #fff);
+      stroke-width: 3px;
+      stroke-linejoin: round;
+    }
+    .kg-node.is-subject text { font-weight: 700; font-size: 15px; }
+    .kg-node.has-hidden circle { stroke: var(--ac-accent-text, #0e6555); stroke-dasharray: 2 2; }
+    .kg-node .kg-count {
+      font-size: 11px;
+      fill: var(--ac-ink-3, #6c7c77);
+      stroke: none;
+    }
+
+    .kg-empty, .kg-loading {
+      padding: 60px 20px;
+      text-align: center;
+      color: var(--ac-ink-2, #41505d);
+    }
+    .kg-legend {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin: 12px 2px 0;
+      font-size: 12px;
+      color: var(--ac-ink-2, #41505d);
+    }
+    .kg-legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .kg-swatch { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <div class="kg-controls">
+    <div>
+      <label for="kg-subject">Subject</label>
+      <select id="kg-subject">
+        {% for subject in subjects %}
+          <option value="{{ subject.pk }}" {% if subject.pk == selected_id %}selected{% endif %}>
+            {{ subject.short_name }} — {{ subject.full_name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label for="kg-spacing">Row spacing</label>
+      <input type="range" id="kg-spacing" min="18" max="60" value="28" step="2">
+    </div>
+
+    <div class="kg-actions">
+      <button type="button" class="button" id="kg-expand">Expand all</button>
+      <button type="button" class="button" id="kg-collapse">Collapse all</button>
+    </div>
+
+    <div class="kg-meta" id="kg-meta"></div>
+  </div>
+
+  <div class="kg-canvas" id="kg-canvas">
+    <div class="kg-loading" id="kg-status">Loading…</div>
+  </div>
+
+  <div class="kg-legend">
+    <span><i class="kg-swatch" style="background:#8c491a"></i> subject</span>
+    <span><i class="kg-swatch" style="background:#3d472b"></i> topic with children</span>
+    <span><i class="kg-swatch" style="background:#aebf92"></i> leaf topic</span>
+    <span>Click a node to fold or unfold it. Numbers in brackets are questions written against that topic.</span>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var canvas = document.getElementById('kg-canvas');
+  var status = document.getElementById('kg-status');
+  var meta = document.getElementById('kg-meta');
+  var subjectPicker = document.getElementById('kg-subject');
+  var spacing = document.getElementById('kg-spacing');
+
+  var COLOURS = { subject: '#8c491a', branch: '#3d472b', leaf: '#aebf92' };
+  var NODE_HEIGHT = 28;      // vertical space per row, driven by the slider
+  var LEVEL_WIDTH = 260;     // horizontal space per level
+  var MARGIN = { top: 28, right: 40, bottom: 28, left: 40 };
+
+  var root = null;
+  var svg = null;
+  var group = null;
+  var counter = 0;
+
+  function layout() {
+    return d3.tree().nodeSize([NODE_HEIGHT, LEVEL_WIDTH]);
+  }
+
+  function label(node) {
+    var name = node.data.name || '';
+    return name.length > 48 ? name.slice(0, 45).trimEnd() + '...' : name;
+  }
+
+  function colourOf(node) {
+    if (node.depth === 0) { return COLOURS.subject; }
+    return (node.children || node._children) ? COLOURS.branch : COLOURS.leaf;
+  }
+
+  function toggle(node) {
+    if (node.children) {
+      node._children = node.children;
+      node.children = null;
+    } else {
+      node.children = node._children;
+      node._children = null;
+    }
+    draw();
+  }
+
+  function setAll(node, open) {
+    if (open && node._children) { node.children = node._children; node._children = null; }
+    if (!open && node.children && node.depth > 0) { node._children = node.children; node.children = null; }
+    (node.children || node._children || []).forEach(function (child) { setAll(child, open); });
+  }
+
+  function draw() {
+    var tree = layout()(root);
+    var nodes = tree.descendants();
+    var links = tree.links();
+
+    // The tree is laid out left-to-right: x is vertical, y horizontal.
+    var minX = d3.min(nodes, function (d) { return d.x; });
+    var maxX = d3.max(nodes, function (d) { return d.x; });
+    var maxY = d3.max(nodes, function (d) { return d.y; });
+
+    var width = maxY + LEVEL_WIDTH + MARGIN.left + MARGIN.right;
+    var height = (maxX - minX) + MARGIN.top + MARGIN.bottom + NODE_HEIGHT;
+
+    svg.attr('width', width).attr('height', height);
+    group.attr('transform',
+      'translate(' + MARGIN.left + ',' + (MARGIN.top - minX) + ')');
+
+    var link = group.selectAll('path.kg-link')
+      .data(links, function (d) { return d.target.data.key; });
+
+    link.enter().append('path').attr('class', 'kg-link')
+      .merge(link)
+      .attr('d', d3.linkHorizontal().x(function (d) { return d.y; }).y(function (d) { return d.x; }));
+
+    link.exit().remove();
+
+    var node = group.selectAll('g.kg-node')
+      .data(nodes, function (d) { return d.data.key; });
+
+    var entered = node.enter().append('g')
+      .attr('class', 'kg-node')
+      .on('click', function (event, d) {
+        if (d.children || d._children) { toggle(d); }
+      });
+
+    entered.append('circle').attr('r', 5.5);
+    entered.append('text').attr('class', 'kg-name').attr('dy', '0.32em');
+    entered.append('text').attr('class', 'kg-count').attr('dy', '0.32em');
+
+    var merged = entered.merge(node);
+
+    merged
+      .attr('transform', function (d) { return 'translate(' + d.y + ',' + d.x + ')'; })
+      .attr('class', function (d) {
+        return 'kg-node'
+          + (d.depth === 0 ? ' is-subject' : '')
+          + (d._children ? ' has-hidden' : '');
+      });
+
+    merged.select('circle').attr('fill', colourOf);
+
+    merged.select('text.kg-name')
+      .attr('x', 12)
+      .attr('text-anchor', 'start')
+      .text(function (d) {
+        var name = label(d);
+        return d._children ? name + '  +' + (d._children.length) : name;
+      })
+      .append('title').text(function (d) { return d.data.name; });
+
+    merged.select('text.kg-count')
+      .attr('x', function (d) { return 12 + label(d).length * 7.1 + 14; })
+      .text(function (d) {
+        return d.data.question_count ? '(' + d.data.question_count + ')' : '';
+      });
+
+    node.exit().remove();
+
+    var shown = nodes.length;
+    var hidden = 0;
+    root.each(function (d) { if (d._children) { hidden += d._children.length; } });
+    meta.textContent = shown + ' shown' + (hidden ? ' · ' + hidden + ' folded away' : '')
+      + ' · depth ' + d3.max(nodes, function (d) { return d.depth; });
+  }
+
+  function render(payload) {
+    canvas.innerHTML = '';
+    if (!payload.children || !payload.children.length) {
+      canvas.innerHTML = '<div class="kg-empty">This subject has no topics yet.</div>';
+      meta.textContent = '';
+      return;
+    }
+
+    svg = d3.select(canvas).append('svg');
+    group = svg.append('g');
+
+    root = d3.hierarchy(payload, function (d) { return d.children; });
+    root.each(function (d) { d.data.key = 'n' + (counter++); });
+    draw();
+  }
+
+  function load(subjectId) {
+    canvas.innerHTML = '<div class="kg-loading">Loading…</div>';
+    fetch('{{ tree_url }}?subject=' + encodeURIComponent(subjectId), {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    })
+      .then(function (response) {
+        if (!response.ok) { throw new Error('HTTP ' + response.status); }
+        return response.json();
+      })
+      .then(render)
+      .catch(function (error) {
+        canvas.innerHTML = '<div class="kg-empty">Could not load the graph: '
+          + error.message + '</div>';
+      });
+  }
+
+  subjectPicker.addEventListener('change', function () { load(this.value); });
+  spacing.addEventListener('input', function () {
+    NODE_HEIGHT = Number(this.value);
+    if (root) { draw(); }
+  });
+  document.getElementById('kg-expand').addEventListener('click', function () {
+    if (root) { setAll(root, true); draw(); }
+  });
+  document.getElementById('kg-collapse').addEventListener('click', function () {
+    if (root) { setAll(root, false); draw(); }
+  });
+
+  if (subjectPicker.value) { load(subjectPicker.value); }
+  else { canvas.innerHTML = '<div class="kg-empty">No subjects yet.</div>'; }
+})();
+</script>
+{% endblock %}

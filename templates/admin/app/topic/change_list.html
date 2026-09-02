@@ -1,0 +1,20 @@
+{% extends "admin/academy_change_list.html" %}
+
+{# The knowledge graph sits beside the add and help buttons. Icon only —
+   a node-link glyph rather than JET's plus, which means "add". #}
+{% block object-tools-items %}
+  <li>
+    <a href="{% url 'admin:app_topic_graph' %}" class="graphlink"
+       title="Knowledge graph" aria-label="Knowledge graph">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M7 12h4M11 12V6.5h5.5M11 12v5.5h5.5"
+              fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="4.5" cy="12" r="2.6" fill="currentColor"/>
+        <circle cx="19" cy="6.5" r="2.4" fill="currentColor"/>
+        <circle cx="19" cy="17.5" r="2.4" fill="currentColor"/>
+      </svg>
+    </a>
+  </li>
+  {{ block.super }}
+{% endblock %}

@@ -7,11 +7,12 @@ from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.contenttypes.admin import GenericTabularInline
 from django.template.response import TemplateResponse
-from django.urls import path
+from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
 from . import entity_help as help_text
+from .columns import TruncatedColumnsMixin, shorten
 from . import files as app_files
 from . import models
 
@@ -43,7 +44,7 @@ class VoidedFilter(admin.SimpleListFilter):
         return queryset.filter(voided=False)
 
 
-class AuditAdmin(admin.ModelAdmin):
+class AuditAdmin(TruncatedColumnsMixin, admin.ModelAdmin):
     """Shared behaviour for every audited model."""
 
     readonly_fields = AUDIT_READONLY
@@ -178,9 +179,98 @@ class SyllabusTopicInline(admin.TabularInline):
 
 @admin.register(models.Topic)
 class TopicAdmin(AuditAdmin):
-    list_display = ("full_name", "subject", "short_name", "sort_order", "visible", "live")
-    list_filter = ("subject", "visible", VoidedFilter)
+    list_display = ("indented_name", "subject", "short_name", "child_count",
+                    "sort_order", "visible", "live")
+    list_filter = ("subject", "depth", "visible", VoidedFilter)
     search_fields = ("short_name", "full_name", "id_number")
+    list_select_related = ("subject", "parent")
+    # Server-side search rather than a raw id box. app/static/js narrows it
+    # to the same subject and cuts the keystroke delay to 200 ms.
+    autocomplete_fields = ("parent",)
+
+    class Media:
+        js = ("js/topic-autocomplete.js",)
+        css = {"all": ("css/topic-autocomplete.css",)}
+
+    change_list_template = "admin/app/topic/change_list.html"
+
+    def get_urls(self):
+        return [
+            path(
+                "graph/",
+                self.admin_site.admin_view(self.knowledge_graph_view),
+                name="app_topic_graph",
+            ),
+        ] + super().get_urls()
+
+    def knowledge_graph_view(self, request):
+        """
+        The knowledge graph: a subject and its topic tree, drawn with D3.
+
+        The page only picks the subject and draws; the tree itself comes
+        from /api/topics/tree/, so the same data feeds anything else that
+        wants it.
+        """
+        subjects = models.Subject.objects.order_by("sort_order", "short_name")
+        selected = request.GET.get("subject")
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Knowledge graph",
+            "opts": self.model._meta,
+            "subjects": subjects,
+            "selected_id": int(selected) if selected and selected.isdigit()
+                           else (subjects.first().pk if subjects.exists() else None),
+            "tree_url": reverse("api:topic-tree"),
+        }
+        return TemplateResponse(request, "admin/knowledge_graph.html", context)
+
+    def get_search_results(self, request, queryset, search_term):
+        """
+        Also serves the parent picker's autocomplete requests.
+
+        The picker sends the form's current subject and the topic being
+        edited, so the results can only ever contain valid parents: same
+        subject, and never the topic itself or anything below it.
+        """
+        queryset, may_have_duplicates = super().get_search_results(
+            request, queryset, search_term
+        )
+
+        subject_id = request.GET.get("subject")
+        if subject_id:
+            queryset = queryset.filter(subject_id=subject_id)
+
+        exclude_id = request.GET.get("exclude_topic")
+        if exclude_id:
+            current = models.Topic.objects.filter(pk=exclude_id).first()
+            if current:
+                queryset = queryset.exclude(pk=current.pk).exclude(
+                    path__startswith=f"{current.path}/"
+                )
+
+        # Only sensible parents: a topic already at the depth limit cannot
+        # take children.
+        queryset = queryset.filter(depth__lt=models.Topic.MAX_DEPTH)
+        return queryset, may_have_duplicates
+
+    @admin.display(description="Topic", ordering="path")
+    def indented_name(self, obj):
+        """
+        Nesting shown by indentation, so the tree reads in the list. This
+        column builds its own markup, so it truncates its own text.
+        """
+        name = shorten(obj.full_name)
+        if not obj.depth:
+            return format_html('<strong title="{}">{}</strong>', obj.full_name, name)
+        return format_html(
+            '<span style="opacity:.6">{}</span><span title="{}">{}</span>',
+            "\u00a0" * (obj.depth * 4) + "└ ", obj.full_name, name,
+        )
+
+    @admin.display(description="Children")
+    def child_count(self, obj):
+        count = obj.children.count()
+        return count or ""
 
 
 @admin.register(models.Syllabus)
@@ -412,7 +502,7 @@ class RetentionPolicyAdmin(AuditAdmin):
 
 
 @admin.register(models.PurgeRun)
-class PurgeRunAdmin(admin.ModelAdmin):
+class PurgeRunAdmin(TruncatedColumnsMixin, admin.ModelAdmin):
     list_display = ("target_table", "rows_purged", "ran_by", "date_run")
     list_filter = ("target_table",)
     readonly_fields = ("target_table", "criteria", "row_ids", "rows_purged", "ran_by", "date_run")
@@ -542,7 +632,7 @@ class AttendanceSessionAdmin(AuditAdmin):
         counts = obj.summary
         if not counts:
             return "—"
-        return ", ".join(f"{status}: {count}" for status, count in sorted(counts.items()))
+        return shorten(", ".join(f"{s}: {c}" for s, c in sorted(counts.items())))
 
 
 @admin.register(models.AttendanceRecord)
@@ -554,4 +644,4 @@ class AttendanceRecordAdmin(AuditAdmin):
 
     @admin.display(description="Student", ordering="enrolment__student__last_name")
     def student_name(self, obj):
-        return obj.enrolment.student
+        return shorten(str(obj.enrolment.student))

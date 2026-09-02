@@ -68,7 +68,20 @@ EnrolmentSerializer = build_serializer(models.Enrolment)
 
 # --- curriculum -------------------------------------------------------
 SubjectSerializer = build_serializer(models.Subject)
-TopicSerializer = build_serializer(models.Topic)
+class TopicSerializer(serializers.ModelSerializer):
+    """Topics nest; `full_path` and `child_count` save the client a walk."""
+
+    full_path = serializers.CharField(read_only=True)
+    child_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.Topic
+        fields = "__all__"
+        read_only_fields = AUDIT_READ_ONLY + ("depth", "path")
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_child_count(self, obj):
+        return obj.children.count()
 SyllabusSerializer = build_serializer(models.Syllabus)
 SyllabusTopicSerializer = build_serializer(models.SyllabusTopic)
 StudentSubjectSerializer = build_serializer(models.StudentSubject)
@@ -110,6 +123,19 @@ class PaperVersionDetailSerializer(serializers.ModelSerializer):
         model = models.PaperVersion
         fields = "__all__"
         read_only_fields = AUDIT_READ_ONLY + ("status", "date_locked", "locked_by")
+
+
+class TopicTreeSerializer(serializers.Serializer):
+    """One node of the knowledge graph. `children` holds the same shape."""
+
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    short_name = serializers.CharField()
+    type = serializers.ChoiceField(choices=["subject", "topic"])
+    depth = serializers.IntegerField()
+    question_count = serializers.IntegerField(allow_null=True)
+    admin_url = serializers.CharField()
+    children = serializers.ListField(child=serializers.DictField(), required=False)
 
 
 class VoidSerializer(serializers.Serializer):

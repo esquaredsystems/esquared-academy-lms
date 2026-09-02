@@ -11,12 +11,13 @@ House rules, applied by `AuditedModelViewSet` to every resource:
     cannot set them.
 """
 
+from django.db.models import Count, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import filters, mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.parsers import (
     FileUploadParser,
     FormParser,
@@ -167,12 +168,121 @@ class SubjectViewSet(AuditedModelViewSet):
 
 
 class TopicViewSet(AuditedModelViewSet):
-    """The permanent topic catalogue. Dropping a topic edits a syllabus."""
+    """
+    The permanent topic catalogue, which nests: a syllabus section holds
+    the things taught under it, and questions can target either level.
+
+    `?parent=<id>` lists one level, `?depth=0` the top level only,
+    `?root_only=true` the same thing by name.
+    """
 
     serializer_class = serializers.TopicSerializer
-    filterset_fields = ["subject", "visible"]
+    filterset_fields = ["subject", "visible", "parent", "depth"]
     search_fields = ["short_name", "full_name", "id_number"]
-    ordering_fields = ["sort_order", "short_name"]
+    ordering_fields = ["sort_order", "short_name", "path"]
+
+    @extend_schema(parameters=[INCLUDE_VOIDED, OpenApiParameter(
+        name="root_only", type=bool, location=OpenApiParameter.QUERY,
+        description="Only top-level topics — the syllabus sections themselves.",
+    )])
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if str(self.request.query_params.get("root_only", "")).lower() in {"1", "true", "yes"}:
+            queryset = queryset.filter(parent__isnull=True)
+        return queryset
+
+    @extend_schema(
+        responses=serializers.TopicSerializer(many=True),
+        description="The topics directly under this one.",
+    )
+    @action(detail=True, methods=["get"])
+    def children(self, request, pk=None):
+        qs = self.get_object().children.all()
+        return Response(serializers.TopicSerializer(qs, many=True).data)
+
+    @extend_schema(
+        responses=serializers.TopicSerializer(many=True),
+        description="This topic and everything below it, in tree order.",
+    )
+    @action(detail=True, methods=["get"])
+    def subtree(self, request, pk=None):
+        qs = self.get_object().subtree()
+        return Response(serializers.TopicSerializer(qs, many=True).data)
+
+    @extend_schema(
+        responses=serializers.TopicSerializer(many=True),
+        description="The chain of parents above this topic, root first.",
+    )
+    @action(detail=True, methods=["get"])
+    def ancestors(self, request, pk=None):
+        return Response(
+            serializers.TopicSerializer(self.get_object().ancestors(), many=True).data
+        )
+
+    @extend_schema(
+        parameters=[OpenApiParameter(
+            name="subject", type=int, location=OpenApiParameter.QUERY, required=True,
+            description="The subject to build the tree for.",
+        )],
+        responses=serializers.TopicTreeSerializer,
+        description=(
+            "One subject's whole topic tree, nested, with the subject itself as "
+            "the root node. Built in a single query — this is what the knowledge "
+            "graph page draws."
+        ),
+    )
+    @action(detail=False, methods=["get"])
+    def tree(self, request):
+        subject_id = request.query_params.get("subject")
+        if not subject_id:
+            raise ValidationError({"subject": "Give a subject id to build the tree for."})
+
+        subject = models.Subject.objects.filter(pk=subject_id).first()
+        if subject is None:
+            raise NotFound("No such subject.")
+
+        # One query for every topic in the subject, one for the question
+        # counts; the tree is then assembled in memory rather than by
+        # walking the database per node.
+        topics = (
+            self.get_queryset()
+            .filter(subject=subject)
+            .annotate(question_total=Count("questions", filter=Q(questions__voided=False)))
+            .order_by("depth", "sort_order", "short_name")
+        )
+
+        nodes = {}
+        for topic in topics:
+            nodes[topic.pk] = {
+                "id": topic.pk,
+                "name": topic.full_name,
+                "short_name": topic.short_name,
+                "type": "topic",
+                "depth": topic.depth + 1,
+                "question_count": topic.question_total,
+                "admin_url": f"/admin/app/topic/{topic.pk}/change/",
+                "children": [],
+            }
+
+        roots = []
+        for topic in topics:
+            node = nodes[topic.pk]
+            parent = nodes.get(topic.parent_id)
+            (parent["children"] if parent else roots).append(node)
+
+        return Response({
+            "id": subject.pk,
+            "name": subject.full_name,
+            "short_name": subject.short_name,
+            "type": "subject",
+            "depth": 0,
+            "question_count": None,
+            "admin_url": f"/admin/app/subject/{subject.pk}/change/",
+            "children": roots,
+        })
 
 
 class SyllabusViewSet(AuditedModelViewSet):

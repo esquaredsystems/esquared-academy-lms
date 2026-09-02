@@ -1,0 +1,23 @@
+/* The parent-topic picker: a full-width select2, not a 15-character box. */
+.field-parent .select2-container,
+.form-row.field-parent .select2-container {
+    width: 100% !important;
+    max-width: 640px;
+}
+
+.field-parent .select2-container .select2-selection--single {
+    height: 38px;
+    display: flex;
+    align-items: center;
+}
+
+.field-parent .select2-container .select2-selection__rendered {
+    line-height: 1.4;
+    padding-left: 12px;
+}
+
+/* Results are topic trails ("Programming › Loops"), so give them room. */
+.select2-container .select2-results__option {
+    padding: 8px 12px;
+    line-height: 1.4;
+}

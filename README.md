@@ -78,6 +78,34 @@ The command is idempotent: it matches on natural keys, updates titles in
 place, and never deletes. A topic dropped from a later syllabus revision
 stays in the catalogue and simply leaves that year's syllabus.
 
+## Topics nest
+
+A topic can sit under another: Programming holds Loops and Conditions,
+Rivers holds Erosion and Deposition. Questions can be written against any
+level, so one can target a whole syllabus section or a single idea inside it.
+
+`parent` is the only field you set. `depth` and `path` are maintained by
+`Topic.save()`, and `path` is what makes "everything under this topic" a
+single query rather than a recursive walk — moving a topic rewrites its
+descendants automatically.
+
+Four rules are enforced in `save()`, not just in the form, so scripts and the
+API cannot build a broken tree either: a topic cannot be its own parent, it
+cannot sit under one of its own descendants, its parent must belong to the
+same subject, and nesting stops at `Topic.MAX_DEPTH` (4).
+
+Only top-level topics are listed on a syllabus; their children come with them.
+The seed nests Geography 2217, the one O Level syllabus here that publishes
+numbered sub-topics — 3 themes with 19 sub-topics under them.
+
+```
+GET /api/topics/?root_only=true      the syllabus sections
+GET /api/topics/?parent=12           one level
+GET /api/topics/12/children/
+GET /api/topics/12/subtree/          everything below, in tree order
+GET /api/topics/12/ancestors/        the trail back to the root
+```
+
 ## Files and attachments
 
 All uploads live under one root — `MEDIA_ROOT` in `.env`, defaulting to

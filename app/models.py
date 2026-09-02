@@ -21,6 +21,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
@@ -285,7 +286,7 @@ class Grade(AuditModel):
     )
     room = models.CharField(max_length=64, null=True, blank=True)
     capacity = models.PositiveIntegerField(null=True, blank=True)
-    sort_order = models.IntegerField(default=0)
+    sort_order = models.IntegerField(default=0, verbose_name="sort")
     visible = models.BooleanField(default=True)
 
     class Meta(AuditModel.Meta):
@@ -379,7 +380,7 @@ class Subject(AuditModel):
     description_format = models.CharField(
         max_length=16, choices=TextFormat.choices, default=TextFormat.MARKDOWN
     )
-    sort_order = models.IntegerField(default=0)
+    sort_order = models.IntegerField(default=0, verbose_name="sort")
     visible = models.BooleanField(default=True)
 
     class Meta(AuditModel.Meta):
@@ -392,9 +393,33 @@ class Subject(AuditModel):
 
 
 class Topic(AuditModel):
-    """Permanent catalogue. Dropping a topic from a year edits a syllabus."""
+    """
+    Permanent catalogue. Dropping a topic from a year edits a syllabus.
+
+    Topics nest. A syllabus section is a top-level topic and the things
+    taught under it are its children — Programming holds Loops and
+    Conditions; Rivers holds Erosion and Deposition. Questions can be
+    written against any level, so a question can target the whole section
+    or one idea inside it.
+
+    `depth` and `path` are maintained by save() and let the tree be
+    queried without recursion: every descendant of a topic has a path
+    starting with that topic's path.
+    """
 
     subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name="topics")
+    parent = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="children",
+        help_text="The topic this one sits under. Empty for a top-level syllabus section.",
+    )
+    depth = models.PositiveSmallIntegerField(
+        default=0, editable=False, help_text="0 for a top-level topic, 1 for its children."
+    )
+    path = models.CharField(
+        max_length=255, blank=True, default="", editable=False,
+        help_text="Ancestor ids, root first, e.g. '4/17/23'. Descendants of a "
+                  "topic all start with that topic's path.",
+    )
     short_name = models.CharField(max_length=64)
     full_name = models.CharField(max_length=256)
     id_number = models.CharField(max_length=64, null=True, blank=True)
@@ -402,19 +427,104 @@ class Topic(AuditModel):
     description_format = models.CharField(
         max_length=16, choices=TextFormat.choices, default=TextFormat.MARKDOWN
     )
-    sort_order = models.IntegerField(default=0)
+    sort_order = models.IntegerField(default=0, verbose_name="sort")
     visible = models.BooleanField(default=True)
     attachments = GenericRelation("AttachmentLink", related_query_name="topic")
 
     class Meta(AuditModel.Meta):
         db_table = "topic"
-        ordering = ["subject", "sort_order"]
+        ordering = ["subject", "path", "sort_order"]
+        indexes = [models.Index(fields=["parent"]), models.Index(fields=["path"])]
         constraints = [
             unique_active(["subject", "short_name"], "topic_short_name_uix")
         ]
 
     def __str__(self):
         return f"{self.subject.short_name} · {self.full_name}"
+
+    # -- the tree ------------------------------------------------------
+    MAX_DEPTH = 4
+
+    def clean(self):
+        """A parent must be a real ancestor candidate, not a relative."""
+        super().clean()
+        if not self.parent_id:
+            return
+        if self.parent_id == self.pk:
+            raise ValidationError({"parent": "A topic cannot be its own parent."})
+        if self.parent.subject_id != self.subject_id:
+            raise ValidationError(
+                {"parent": "The parent topic must belong to the same subject."}
+            )
+        if self.pk and str(self.pk) in (self.parent.path or "").split("/"):
+            raise ValidationError(
+                {"parent": "That topic is already below this one — the tree would loop."}
+            )
+        if self.parent.depth + 1 > self.MAX_DEPTH:
+            raise ValidationError(
+                {"parent": f"Topics nest at most {self.MAX_DEPTH} levels deep."}
+            )
+
+    def save(self, *args, **kwargs):
+        # clean() is not called by save(); enforce the same rules here so
+        # scripts and the API cannot build a broken tree either.
+        if self.parent_id:
+            self.full_clean_parent()
+            self.depth = self.parent.depth + 1
+        else:
+            self.depth = 0
+        super().save(*args, **kwargs)
+
+        path = f"{self.parent.path}/{self.pk}" if self.parent_id else str(self.pk)
+        if path != self.path:
+            self.path = path
+            super().save(update_fields=["path"])
+            self._reparent_descendants()
+
+    def full_clean_parent(self):
+        from django.core.exceptions import ValidationError as _VE
+
+        try:
+            self.clean()
+        except _VE as exc:
+            raise ValueError("; ".join(sum(exc.message_dict.values(), [])))
+
+    def _reparent_descendants(self):
+        """Rewrite path and depth below this topic after it moves."""
+        for child in Topic.all_objects.filter(parent=self):
+            child.depth = self.depth + 1
+            child.path = f"{self.path}/{child.pk}"
+            super(Topic, child).save(update_fields=["depth", "path"])
+            child._reparent_descendants()
+
+    @property
+    def is_root(self):
+        return self.parent_id is None
+
+    @property
+    def full_path(self):
+        """'Programming › Loops', for lists and pickers."""
+        names = [t.full_name for t in self.ancestors()] + [self.full_name]
+        return " › ".join(names)
+
+    def ancestors(self):
+        """Root first, this topic excluded."""
+        ids = [int(part) for part in (self.path or "").split("/") if part]
+        ids = [i for i in ids if i != self.pk]
+        if not ids:
+            return []
+        by_id = {t.pk: t for t in Topic.objects.filter(pk__in=ids)}
+        return [by_id[i] for i in ids if i in by_id]
+
+    def descendants(self):
+        """Every topic below this one, at any depth."""
+        if not self.path:
+            return Topic.objects.none()
+        return Topic.objects.filter(path__startswith=f"{self.path}/")
+
+    def subtree(self):
+        """This topic and everything below it."""
+        return Topic.objects.filter(models.Q(pk=self.pk) | models.Q(path__startswith=f"{self.path}/"))
 
 
 class Syllabus(AuditModel):
@@ -450,7 +560,7 @@ class Syllabus(AuditModel):
 class SyllabusTopic(AuditModel):
     syllabus = models.ForeignKey(Syllabus, on_delete=models.PROTECT, related_name="topics")
     topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name="syllabus_entries")
-    sort_order = models.IntegerField()
+    sort_order = models.IntegerField(verbose_name="sort")
     weight_pct = models.DecimalField(
         max_digits=5, decimal_places=2, null=True, blank=True,
         validators=[MinValueValidator(0), MaxValueValidator(100)],
@@ -1283,7 +1393,7 @@ class AttachmentLink(AuditModel):
         max_length=32, default="attachment",
         help_text="e.g. figure, diagram, mark_scheme, submission, resource.",
     )
-    sort_order = models.IntegerField(default=0)
+    sort_order = models.IntegerField(default=0, verbose_name="sort")
 
     class Meta(AuditModel.Meta):
         db_table = "attachment_link"

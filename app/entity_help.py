@@ -108,12 +108,15 @@ ENTITY_HELP = {
     "topic": {
         "summary": "A section of a subject's syllabus.",
         "role": "The permanent topic catalogue. Questions are written against topics.",
-        "context": "Dropping a topic from a year means removing it from that year's syllabus, never deleting it here — questions written against it must keep their home.",
+        "context": "Topics nest: a syllabus section holds the things actually taught under it — Programming holds Loops and Conditions, Rivers holds Erosion and Deposition. Questions can be written against any level. Dropping a topic from a year means removing it from that year's syllabus, never deleting it here.",
         "fields": [
-            ("subject", "The subject that owns it. A topic belongs to exactly one."),
+            ("subject", "The subject that owns it. A topic belongs to exactly one, and a parent must be in the same subject."),
+            ("parent", "The topic this one sits under. Empty makes it a top-level syllabus section; setting it makes it a sub-topic. A topic cannot sit under its own descendant, and the tree stops at four levels."),
             ("short_name", "The syllabus's own section reference, prefixed by stage: LS- for Lower Secondary strands, OL- for O Level sections. Unique within the subject."),
+            ("depth", "0 for a syllabus section, 1 for its children, and so on. Maintained automatically."),
+            ("path", "Ancestor ids, root first. Maintained automatically, and what makes 'everything under this topic' a single query."),
             ("description", "Carries the source syllabus document the title was taken from."),
-            ("sort_order", "Position in the catalogue, not necessarily the teaching order — that lives on the syllabus."),
+            ("sort_order", "Position among its siblings, not necessarily the teaching order — that lives on the syllabus."),
         ],
     },
     "syllabus": {
@@ -131,7 +134,7 @@ ENTITY_HELP = {
     },
     "syllabustopic": {
         "summary": "A topic's place on one year's syllabus, with its teaching order.",
-        "role": "The link that lets a topic appear in 2026 and not in 2027 without disturbing the catalogue.",
+        "role": "The link that lets a topic appear in 2026 and not in 2027 without disturbing the catalogue. Only top-level topics are listed; their children come with them.",
         "context": "Removing a row here drops the topic from that year only. The topic, and every question written against it, stays.",
         "fields": [
             ("sort_order", "The order it is taught. Unique within the syllabus — no two topics share a position."),

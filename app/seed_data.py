@@ -218,9 +218,35 @@ TOPICS = {
     },
     ("GEO", STAGE_OL): {
         "source": "Cambridge O Level Geography 2217 syllabus 2026 (697292)",
-        "topics": [("1", "Theme 1: Population and settlement"),
-                   ("2", "Theme 2: The natural environment"),
-                   ("3", "Theme 3: Economic development")],
+        "note": "The only O Level syllabus here that publishes its sub-topics as a "
+                "numbered list, so they are seeded as children.",
+        "topics": [
+            ("1", "Theme 1: Population and settlement", [
+                ("1.1", "Population dynamics"),
+                ("1.2", "Migration"),
+                ("1.3", "Population structure"),
+                ("1.4", "Population density and distribution"),
+                ("1.5", "Settlements (rural and urban) and service provision"),
+                ("1.6", "Urban settlements"),
+                ("1.7", "Urbanisation"),
+            ]),
+            ("2", "Theme 2: The natural environment", [
+                ("2.1", "Earthquakes and volcanoes"),
+                ("2.2", "Rivers"),
+                ("2.3", "Coasts"),
+                ("2.4", "Weather"),
+                ("2.5", "Climate and natural vegetation"),
+            ]),
+            ("3", "Theme 3: Economic development", [
+                ("3.1", "Development"),
+                ("3.2", "Food production"),
+                ("3.3", "Industry"),
+                ("3.4", "Tourism"),
+                ("3.5", "Energy"),
+                ("3.6", "Water"),
+                ("3.7", "Environmental risks of economic development"),
+            ]),
+        ],
     },
     ("HIST", STAGE_OL): {
         "source": "Cambridge O Level History 2147 syllabus 2024-2026 (649640)",

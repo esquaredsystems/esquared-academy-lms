@@ -1,251 +1,808 @@
-:root {
-    --academy-ink: #1f2a33;
-    --academy-ink-2: #41505d;
-    --academy-brand: #0e6555;
-    --academy-line: #b7c1c9;
-    --academy-error: #b3261e;
-    --academy-warning: #8a5711;
-}
-
-/* --- primary text ------------------------------------------------- */
-body,
-#content,
-.content,
-.dashboard,
-.module,
-.module p,
-.results,
-.results td,
-.results th,
-.form-row,
-.form-row p,
-.aligned label,
-.inline-group,
-.inline-related h3,
-.breadcrumbs,
-.paginator,
-.object-tools a,
-.change-list .toplinks a {
-    color: var(--academy-ink) !important;
-}
-
-/* --- secondary text ----------------------------------------------- */
-.help,
-.helptext,
-small,
-.quiet,
-.datetimeshortcuts,
-.paginator .this-page,
-.results th a,
-.sidebar .content-related h3 {
-    color: var(--academy-ink-2) !important;
-}
-
-/* --- links -------------------------------------------------------- */
-#content a:link,
-#content a:visited,
-.results a:link,
-.results a:visited,
-.breadcrumbs a,
-.paginator a:link,
-.paginator a:visited {
-    color: var(--academy-brand) !important;
-}
-
-#content a:hover,
-.results a:hover {
-    color: #0a4a3e !important;
-    text-decoration: underline;
-}
-
-/* --- edges: 1.72:1 borders are effectively invisible -------------- */
-.results,
-.results td,
-.results th,
-.module,
-.form-row,
-fieldset.module,
-.inline-related,
-input[type="text"],
-input[type="password"],
-input[type="email"],
-input[type="url"],
-input[type="number"],
-textarea,
-select {
-    border-color: var(--academy-line) !important;
-}
-
-.results tbody tr:nth-child(odd) {
-    background: #f4f6f8 !important;   /* zebra striping you can actually see */
-}
-
-/* --- form fields --------------------------------------------------- */
-input, textarea, select {
-    color: var(--academy-ink) !important;
-}
-
-::placeholder {
-    color: #5d6b78 !important;        /* 5.2:1, still clearly a placeholder */
-    opacity: 1;
-}
-
-/* --- state colours -------------------------------------------------- */
-.errornote,
-.errorlist li,
-ul.errorlist li {
-    color: #fff !important;
-    background: var(--academy-error) !important;
-}
-
-.warning, .messagelist .warning {
-    color: var(--academy-warning) !important;
-}
-
-/* --- buttons -------------------------------------------------------- */
-.button,
-input[type="submit"],
-.submit-row input[type="submit"],
-.object-tools a.addlink {
-    background: var(--academy-brand) !important;
-    border-color: var(--academy-brand) !important;
-    color: #fff !important;           /* 6.97:1 */
-}
-
-.button:hover,
-input[type="submit"]:hover,
-.submit-row input[type="submit"]:hover {
-    background: #0a4a3e !important;
-}
-
-/* --- focus: JET's outline is nearly invisible on a light ground ---- */
-a:focus-visible,
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-    outline: 2px solid var(--academy-brand) !important;
-    outline-offset: 2px;
-}
-
 /* ---------------------------------------------------------------------
- * Object tools: the add button and the entity help beside it.
+ * academy-admin.css — Organic theme for the Esquared Academy admin
  *
- * JET renders "Add <model>" as text plus an icon-font plus sign, in a
- * grey that fails contrast. Hide the words, keep the icon, and give it
- * the brand colour so the control reads as a button rather than a label.
- * The text stays in the DOM, so screen readers still announce it.
+ * Drop-in replacement for static/css/academy-admin.css. Loaded after
+ * JET's theme by templates/admin/base_site.html, so everything here
+ * wins. JET's structure is untouched: same templates, same markup,
+ * same sidebar — this file only restyles it.
+ *
+ * Set JET_THEME=light-gray in .env before using this. Any skin works
+ * (every colour below is overridden), but light-gray leaves the fewest
+ * accent colours peeking through in widgets not covered here.
+ *
+ * Contrast (measured against the background each pair actually sits on,
+ * WCAG AA wants 4.5:1 for body text, 3:1 for chrome and large text):
+ *   ink #201e1d on sand #f5ead8 .......... 14.9:1
+ *   ink #201e1d on card #f9f4ed .......... 16.2:1
+ *   muted #474238 on card #f9f4ed ........  8.9:1
+ *   dim #645c50 on card #f9f4ed ..........  5.7:1
+ *   link #8c491a on card #f9f4ed .........  6.2:1
+ *   sand #f5ead8 on terracotta #8c491a ...  6.2:1
+ *   sage-200 #e1eecc on sage-800 #3d472b .  9.3:1
+ *   sage-400 #aebf92 on sage-800 #3d472b .  5.6:1
+ *   ink-sage #272e1b on sage-200 #e1eecc . 11.6:1
+ * The base accent #c67139 is 3.0:1 on sand — used only for shapes,
+ * icons and fills, never for text. Text accents come from the 700 step.
  * ------------------------------------------------------------------ */
+
+@import url("https://fonts.googleapis.com/css2?family=Caprasimo&family=Figtree:wght@400;500;600;700&display=swap");
+
+:root {
+    /* ground and ink */
+    --ac-bg:            #f5ead8;
+    --ac-card:          #f9f4ed;
+    --ac-card-2:        #eee7db;
+    --ac-ink:           #201e1d;
+    --ac-ink-2:         #474238;
+    --ac-ink-3:         #645c50;
+    --ac-line:          #dcd3c4;
+    --ac-line-strong:   #c0b6a5;
+
+    /* terracotta — action */
+    --ac-accent:        #c67139;
+    --ac-accent-tint:   #ffe1d0;
+    --ac-accent-text:   #8c491a;
+    --ac-accent-press:  #643312;
+
+    /* sage — second voice */
+    --ac-sage:          #8fa073;
+    --ac-sage-tint:     #e1eecc;
+    --ac-sage-ink:      #272e1b;
+    --ac-sage-dark:     #3d472b;
+    --ac-sage-mid:      #56633f;
+    --ac-sage-light:    #aebf92;
+
+    --ac-error:         #a01f1f;
+    --ac-radius:        16px;
+    --ac-radius-lg:     28px;
+    --ac-pill:          999px;
+    --ac-font:          "Figtree", system-ui, -apple-system, sans-serif;
+    --ac-display:       "Caprasimo", Georgia, serif;
+    --ac-shadow:        0 1px 2px rgba(46, 43, 37, 0.14);
+    --ac-shadow-md:     0 3px 10px rgba(46, 43, 37, 0.16);
+}
+
+/* --- ground and type ---------------------------------------------- */
+
+body,
+input, textarea, select, button,
+.button, .object-tools a, .segmented-button {
+    font-family: var(--ac-font) !important;
+}
+
+body {
+    background: var(--ac-bg) !important;
+    color: var(--ac-ink) !important;
+    font-size: 15px;
+    line-height: 1.55;
+}
+
+#content > h1,
+.dashboard h1,
+#content h1 {
+    font-family: var(--ac-display) !important;
+    font-weight: 400 !important;
+    font-size: 32px !important;
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    color: var(--ac-ink) !important;
+}
+
+.module h2, .module caption, .inline-group h2,
+#recent-actions-module > h2,
+.dashboard-item-header-title {
+    font-family: var(--ac-display) !important;
+    font-weight: 400 !important;
+    font-size: 19px !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    color: var(--ac-ink) !important;
+}
+
+body, #content, .content, .dashboard, .module, .module p,
+.results, .results td, .results th, .form-row, .form-row p,
+.aligned label, .inline-group, .inline-related h3, .paginator,
+.change-list .toplinks a, fieldset.module {
+    color: var(--ac-ink) !important;
+}
+
+.help, .helptext, small, .quiet, .datetimeshortcuts,
+.paginator .this-page, .results th a, .dim,
+.sidebar .content-related h3 {
+    color: var(--ac-ink-3) !important;
+}
+
+/* --- links --------------------------------------------------------- */
+
+#content a:link, #content a:visited,
+.results a:link, .results a:visited,
+.breadcrumbs a, .paginator a:link, .paginator a:visited,
+.dashboard-item-content a:link, .dashboard-item-content a:visited {
+    color: var(--ac-accent-text) !important;
+    font-weight: 600;
+}
+
+#content a:hover, .results a:hover,
+.dashboard-item-content a:hover, .breadcrumbs a:hover {
+    color: var(--ac-accent-press) !important;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* --- the sidebar --------------------------------------------------- */
+
+.sidebar,
+.sidebar-header-wrapper,
+.sidebar-header-wrapper.sidebar-opened {
+    background-color: var(--ac-sage-dark) !important;
+    color: var(--ac-sage-light) !important;
+}
+
+body.menu-pinned #container { padding-left: 264px; }
+.sidebar { width: 264px !important; }
+
+#branding {
+    background-color: var(--ac-sage-dark) !important;
+    color: #f0fae1 !important;
+    border-bottom: 1px solid var(--ac-sage-mid);
+    text-align: left !important;
+    padding: 18px 24px !important;
+}
+#branding h1, #branding h2, #branding a, #branding a:visited {
+    font-family: var(--ac-display) !important;
+    font-weight: 400 !important;
+    font-size: 15px !important;
+    text-transform: none !important;
+    color: #f0fae1 !important;
+    padding: 0 !important;
+}
+#branding-pin, #branding-menu { color: var(--ac-sage-light) !important; }
+
+.sidebar-section {
+    border-bottom: 0 !important;
+    padding: 14px 12px !important;
+}
+.sidebar-section + .sidebar-section { padding-top: 2px !important; }
+
+.sidebar-title,
+.sidebar-title-link,
+.sidebar-title-link:visited {
+    color: var(--ac-sage-light) !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.12em;
+    padding: 0 14px !important;
+    margin-bottom: 8px !important;
+}
+.sidebar-title-link:hover { color: #f0fae1 !important; }
+
+.sidebar-link,
+.sidebar-link:visited {
+    color: var(--ac-sage-tint) !important;
+    padding: 9px 14px !important;
+    margin: 1px 0;
+    border-radius: var(--ac-pill) !important;
+    font-size: 14px;
+}
+.sidebar-link.icon { font-size: 12px !important; letter-spacing: 0.06em; }
+.sidebar-link:hover {
+    color: #fff !important;
+    background-color: var(--ac-sage-mid) !important;
+}
+.sidebar-link.selected {
+    color: var(--ac-sage-dark) !important;
+    background-color: var(--ac-bg) !important;
+    font-weight: 700;
+}
+.sidebar-link-icon, .sidebar-right-arrow { color: var(--ac-sage-light) !important; }
+.sidebar-link.selected .sidebar-link-icon,
+.sidebar-link.selected .sidebar-right-arrow { color: var(--ac-accent) !important; }
+.sidebar-center-link, .sidebar-center-link:visited { color: var(--ac-sage-light) !important; }
+
+/* --- top bar: breadcrumbs and the user menu ------------------------ */
+
+div.breadcrumbs {
+    color: var(--ac-ink) !important;
+    text-transform: none !important;
+    font-size: 13px !important;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(32, 30, 29, 0.16);
+    background: var(--ac-bg);
+    padding: 14px 235px 14px 28px !important;
+    margin-bottom: 22px;
+}
+.breadcrumbs-separator { color: var(--ac-line-strong) !important; }
+
+.user-tools ul {
+    border: 1px solid var(--ac-line) !important;
+    border-radius: var(--ac-pill) !important;
+    background: var(--ac-card);
+    overflow: hidden;
+}
+.user-tools ul.opened {
+    border-radius: var(--ac-radius) !important;
+    background-color: var(--ac-sage-dark) !important;
+    color: var(--ac-sage-tint) !important;
+}
+.user-tools ul li.user-tools-welcome-msg { color: var(--ac-ink-2) !important; font-weight: 600; }
+.user-tools ul.opened li.user-tools-welcome-msg {
+    color: #fff !important;
+    border-bottom-color: var(--ac-sage-mid) !important;
+}
+.user-tools ul li.user-tools-welcome-msg:before { color: var(--ac-accent) !important; }
+.user-tools ul li.user-tools-link a,
+.user-tools ul li.user-tools-link a:visited { color: var(--ac-sage-tint) !important; }
+.user-tools ul li.user-tools-contrast-block {
+    background: var(--ac-sage-mid) !important;
+    color: #f0fae1 !important;
+}
+
+/* --- cards, modules, inline groups --------------------------------- */
+
+fieldset.module,
+.inline-group,
+.module ul.actionlist,
+.dashboard-item-content,
+table {
+    background-color: var(--ac-card) !important;
+    border-radius: var(--ac-radius-lg) !important;
+    box-shadow: var(--ac-shadow) !important;
+    border: 0 !important;
+    overflow: hidden;
+}
+fieldset.module { padding: 22px 26px !important; }
+.dashboard-item { background: transparent !important; }
+.dashboard-item.collapsed { background: transparent !important; }
+
+/* --- tables -------------------------------------------------------- */
+
+table { border-collapse: collapse; }
+
+thead th, tfoot td,
+#changelist table thead th,
+.inline-group thead th {
+    background: var(--ac-sage-tint) !important;
+    color: var(--ac-sage-ink) !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 13px 14px !important;
+    border-radius: 0 !important;
+}
+thead th a:link, thead th a:visited { color: var(--ac-sage-ink) !important; }
+table thead th.sortable:hover { background: #ccdbb2 !important; }
+table thead th.sorted .sortpriority {
+    background: var(--ac-card) !important;
+    color: var(--ac-ink-2) !important;
+    border-radius: var(--ac-pill);
+}
+
+td, th { padding: 14px !important; font-size: 14px !important; }
+.results tbody tr { border-bottom: 1px solid rgba(32, 30, 29, 0.16) !important; }
+.results tbody tr:nth-child(odd) { background: var(--ac-card-2) !important; }
+#changelist table tbody tr.selected {
+    background-color: var(--ac-accent-tint) !important;
+    border-color: var(--ac-accent) !important;
+}
+.results, .results td, .results th,
+.module, .form-row, fieldset.module, .inline-related {
+    border-color: var(--ac-line) !important;
+}
+.module ul.actionlist li,
+.dashboard-item-content ul:not(.inline) li {
+    border-bottom: 1px solid rgba(32, 30, 29, 0.16) !important;
+    padding: 12px 22px !important;
+    font-size: 14px !important;
+}
+.dashboard-item-content ul:not(.inline) li.contrast {
+    background: var(--ac-sage-tint) !important;
+}
+.dashboard-item-content ul:not(.inline) li.contrast,
+.dashboard-item-content ul:not(.inline) li.contrast a,
+.dashboard-item-content ul:not(.inline) li.contrast a:visited {
+    color: var(--ac-sage-ink) !important;
+}
+
+/* --- BOOLEAN COLUMNS -----------------------------------------------
+ * Django 5.2 renders a boolean as a bare <img>, with no adjacent
+ * <span>; JET hides those images expecting the span older Django used
+ * to emit, so every boolean column — live, visible, is_terminal,
+ * suspended — currently renders as an empty cell. Put the icons back.
+ * ------------------------------------------------------------------ */
+
+img[src$="admin/img/icon-yes.svg"],
+img[src$="admin/img/icon-no.svg"],
+img[src$="admin/img/icon-unknown.svg"],
+img[src$="admin/img/icon-yes.gif"],
+img[src$="admin/img/icon-no.gif"],
+img[src$="admin/img/icon-unknown.gif"] {
+    display: inline-block !important;
+    width: 16px;
+    height: 16px;
+    vertical-align: -3px;
+}
+img[src$="admin/img/icon-yes.svg"] + span { color: var(--ac-sage-ink) !important; }
+img[src$="admin/img/icon-no.svg"] + span { color: var(--ac-accent-text) !important; }
+
+/* --- buttons ------------------------------------------------------- */
+
+.button, input[type="submit"], input[type="button"],
+.object-tools a, .segmented-button, #changelist .actions .button {
+    background-color: transparent !important;
+    color: var(--ac-ink) !important;
+    border: 1px solid var(--ac-line) !important;
+    border-radius: var(--ac-pill) !important;
+    height: 40px !important;
+    line-height: 38px !important;
+    padding: 0 18px !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    text-transform: none !important;
+    box-shadow: none !important;
+}
+.button:hover, input[type="submit"]:hover, input[type="button"]:hover,
+.object-tools a:hover, .segmented-button:hover {
+    background-color: rgba(32, 30, 29, 0.07) !important;
+    color: var(--ac-ink) !important;
+}
+.button:active, input[type="submit"]:active {
+    background-color: rgba(32, 30, 29, 0.14) !important;
+}
+
+.button.default,
+input[type="submit"].default,
+.submit-row input[type="submit"].default,
+#toolbar form input[type="submit"],
+#changelist .actions .button,
 .object-tools a.addlink {
-    font-size: 0 !important;              /* hides the words, keeps the icon */
-    padding: 0 12px !important;
-    background: var(--academy-brand) !important;
+    background-color: var(--ac-accent-text) !important;
+    border-color: var(--ac-accent-text) !important;
+    color: var(--ac-bg) !important;
+    font-weight: 700 !important;
+    padding: 0 24px !important;
+}
+.button.default:hover, .button.default:focus,
+input[type="submit"].default:hover, input[type="submit"].default:focus,
+.submit-row input[type="submit"].default:hover,
+#toolbar form input[type="submit"]:hover,
+#changelist .actions .button:hover,
+.object-tools a.addlink:hover, .object-tools a.addlink:focus {
+    background-color: var(--ac-accent-press) !important;
+    border-color: var(--ac-accent-press) !important;
+    color: var(--ac-bg) !important;
+}
+
+.submit-row a.deletelink,
+.inline-related h3 span.delete,
+.inline-related h3 .inline-deletelink {
+    background-color: transparent !important;
+    color: var(--ac-error) !important;
+    border: 1px solid var(--ac-error) !important;
+    border-radius: var(--ac-pill) !important;
+    text-transform: none !important;
+    font-weight: 600 !important;
+}
+.submit-row a.deletelink:hover {
+    background-color: var(--ac-error) !important;
     color: #fff !important;
 }
 
-.object-tools a.addlink::before {
-    font-size: 15px !important;
-    color: #fff !important;
+/* Object tools.
+ *
+ * Two things JET gets wrong here, both fixed below.
+ *
+ * 1. The add button. Its label is hidden (font-size:0 on the anchor,
+ *    restored on the ::before icon) so only the plus shows. The words
+ *    stay in the DOM, so screen readers still announce "Add subject".
+ *
+ * 2. The row. JET sets `body.change-list .object-tools li` to
+ *    display:list-item, which stacks every tool on its own line — fine
+ *    when there was one button, wrong now there are two or three. The
+ *    list becomes a flex row instead, aligned right like JET intends.
+ */
+.object-tools { margin-bottom: 22px !important; }
+
+.object-tools.initialized {
+    display: flex !important;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+}
+body.change-list .object-tools li,
+.object-tools li {
+    display: inline-flex !important;
     margin: 0 !important;
 }
 
-.object-tools a.addlink:hover,
-.object-tools a.addlink:focus {
-    background: #0a4a3e !important;
-}
-
-/* The uploader keeps its label — it is not an obvious icon. */
-.object-tools a.uploadlink {
-    font-size: 12px !important;
+.object-tools a.addlink {
+    font-size: 0 !important;          /* hides the label, keeps the icon */
     padding: 0 14px !important;
+    min-width: 40px;
+    justify-content: center;
 }
-.object-tools a.uploadlink::before { margin-right: 5px !important; }
+.object-tools a.addlink:before {
+    color: var(--ac-bg) !important;
+    font-size: 16px !important;
+    margin: 0 !important;
+}
 
-/* The "?" */
+/* The uploader keeps its words — a lone icon there is not guessable. */
+.object-tools a.uploadlink { font-size: 14px !important; padding: 0 18px !important; }
+.object-tools a.uploadlink:before { margin-right: 6px !important; }
+
+@media only screen and (max-width: 960px) {
+    .object-tools.initialized { justify-content: flex-start; }
+}
+
 .object-tools a.helplink {
-    font-size: 14px !important;
-    font-weight: 700;
-    width: 32px;
-    padding: 0 !important;
+    width: auto !important;
+    padding: 0 18px !important;
     background: transparent !important;
-    color: var(--academy-brand) !important;
-    border: 1px solid var(--academy-line) !important;
+    color: var(--ac-ink) !important;
+    border: 1px solid var(--ac-line) !important;
+    font-weight: 600 !important;
 }
 .object-tools a.helplink:hover,
 .object-tools a.helplink:focus,
 .object-tools a.helplink[aria-expanded="true"] {
-    background: var(--academy-brand) !important;
-    border-color: var(--academy-brand) !important;
-    color: #fff !important;
+    background: var(--ac-accent-tint) !important;
+    border-color: var(--ac-accent-tint) !important;
+    color: var(--ac-accent-text) !important;
 }
 
-/* The panel it opens */
+/* --- inputs -------------------------------------------------------- */
+
+input[type="text"], input[type="password"], input[type="email"],
+input[type="url"], input[type="number"], select, .vTextField {
+    background-color: #fff !important;
+    color: var(--ac-ink) !important;
+    border: 1px solid var(--ac-line-strong) !important;
+    border-radius: var(--ac-pill) !important;
+    height: 42px !important;
+    padding: 0 18px !important;
+    font-size: 15px !important;
+}
+textarea {
+    background-color: #fff !important;
+    color: var(--ac-ink) !important;
+    border: 1px solid var(--ac-line-strong) !important;
+    border-radius: var(--ac-radius) !important;
+    padding: 14px 18px !important;
+    font-size: 15px !important;
+    line-height: 1.55;
+}
+::placeholder { color: var(--ac-ink-3) !important; opacity: 1; }
+
+input:focus, textarea:focus, select:focus,
+fieldset.module input:focus, fieldset.module textarea:focus {
+    border-color: var(--ac-accent) !important;
+    box-shadow: 0 0 0 3px rgba(198, 113, 57, 0.28) !important;
+}
+
+input[type=checkbox] + label:before,
+.action-checkbox-column input[type=checkbox] + label:before {
+    color: var(--ac-accent) !important;
+    font-size: 15px !important;
+}
+.action-checkbox-column input[type=checkbox] + label:before { color: var(--ac-sage-mid) !important; }
+
+.aligned label {
+    width: 200px !important;
+    color: var(--ac-ink-2) !important;
+    font-weight: 600;
+    line-height: 1.3 !important;
+    padding-top: 12px !important;
+}
+form .aligned ul,
+form .aligned p.help,
+.aligned label + p,
+form .aligned input + p.help,
+form .aligned textarea + p.help,
+form .aligned select + p.help { margin-left: 210px !important; }
+
+/* --- inline rows --------------------------------------------------- */
+
+.inline-related h3 {
+    background: transparent !important;
+    color: var(--ac-ink) !important;
+    font-family: var(--ac-display) !important;
+    font-weight: 400 !important;
+    font-size: 19px !important;
+    text-transform: none !important;
+    padding: 20px 26px 4px !important;
+}
+.inline-related h3 .inline_label {
+    background: var(--ac-sage-tint) !important;
+    color: var(--ac-sage-ink) !important;
+    border-radius: var(--ac-pill) !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    padding: 4px 12px !important;
+}
+.inline-related fieldset { background: transparent !important; }
+
+/* --- filters, actions, paginator ----------------------------------- */
+
+#toolbar { margin-bottom: 18px !important; }
+#toolbar form #searchbar { min-width: 320px; }
+
+.changelist-filter-select-wrapper .select2-selection,
+.select2-container--default .select2-selection--single,
+.select2-container--default .select2-selection--multiple {
+    background: var(--ac-card) !important;
+    border: 1px solid var(--ac-line) !important;
+    border-radius: var(--ac-pill) !important;
+    height: 40px !important;
+    color: var(--ac-ink) !important;
+}
+.select2-container--default .select2-selection--single .select2-selection__rendered {
+    color: var(--ac-ink) !important;
+    line-height: 38px !important;
+    font-weight: 600;
+    padding-left: 16px;
+}
+.select2-container--default .select2-results__option--highlighted[aria-selected] {
+    background-color: var(--ac-accent-tint) !important;
+    color: var(--ac-accent-text) !important;
+}
+.select2-dropdown {
+    border-color: var(--ac-line) !important;
+    border-radius: var(--ac-radius) !important;
+    overflow: hidden;
+}
+
+.change-list ul.toplinks li {
+    background-color: var(--ac-card) !important;
+    color: var(--ac-ink) !important;
+    border: 1px solid var(--ac-line);
+    border-radius: var(--ac-pill) !important;
+    padding: 7px 14px !important;
+}
+
+.changelist-footer { background: var(--ac-bg) !important; }
+.changelist-footer.fixed { border-top: 1px solid rgba(32, 30, 29, 0.16) !important; }
+body.menu-pinned .changelist-footer.fixed { left: 284px; }
+
+.paginator .pages-wrapper span,
+.paginator .pages-wrapper a:link,
+.paginator .pages-wrapper a:visited {
+    background-color: var(--ac-card) !important;
+    color: var(--ac-ink) !important;
+    border: 1px solid var(--ac-line);
+    border-radius: var(--ac-pill) !important;
+    margin-left: 4px;
+    padding: 7px 13px !important;
+    font-weight: 600;
+}
+.paginator .pages-wrapper span:not(.disabled) {
+    background-color: var(--ac-accent-text) !important;
+    border-color: var(--ac-accent-text) !important;
+    color: var(--ac-bg) !important;
+}
+.paginator .pages-wrapper a:hover {
+    background-color: var(--ac-accent-tint) !important;
+    border-color: var(--ac-accent-tint) !important;
+    color: var(--ac-accent-text) !important;
+}
+
+/* --- messages ------------------------------------------------------ */
+
+.messagelist li {
+    border-radius: var(--ac-radius) !important;
+    font-size: 14px;
+    padding: 14px 22px !important;
+}
+.messagelist li.success { background: var(--ac-sage-tint) !important; color: var(--ac-sage-ink) !important; }
+.messagelist li.info    { background: var(--ac-accent-tint) !important; color: var(--ac-accent-text) !important; }
+.messagelist li.warning { background: var(--ac-accent-tint) !important; color: var(--ac-accent-text) !important; }
+.messagelist li.error   { background: var(--ac-error) !important; color: #fff !important; }
+
+.errornote, .errorlist li, ul.errorlist li {
+    background: var(--ac-error) !important;
+    color: #fff !important;
+    border-radius: var(--ac-radius) !important;
+}
+.form-row.errors label { color: var(--ac-error) !important; }
+
+/* --- focus: never the browser default ------------------------------ */
+
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible,
+.sidebar-link:focus-visible, .object-tools a:focus-visible {
+    outline: 2px solid var(--ac-accent) !important;
+    outline-offset: 2px;
+}
+::selection { background: rgba(198, 113, 57, 0.3); }
+
+/* --- login --------------------------------------------------------- */
+
+body.login {
+    background: var(--ac-sage-dark) !important;
+    padding: 120px 30px 30px !important;
+}
+body.login #container {
+    background: var(--ac-card) !important;
+    border-radius: var(--ac-radius-lg) !important;
+    width: 430px;
+    box-shadow: 0 12px 32px rgba(46, 43, 37, 0.28);
+}
+body.login #header { display: none !important; }
+body.login #content { padding: 44px !important; }
+body.login #content:before {
+    content: "Sign in to the LMS";
+    display: block;
+    font-family: var(--ac-display);
+    font-size: 30px;
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    color: var(--ac-ink);
+    margin-bottom: 22px;
+}
+body.login .form-row label { color: var(--ac-ink-2) !important; font-weight: 600; }
+body.login .form-row #id_username,
+body.login .form-row #id_password { padding: 0 18px !important; }
+body.login .submit-row input[type="submit"] {
+    background-color: var(--ac-accent-text) !important;
+    border-color: var(--ac-accent-text) !important;
+    color: var(--ac-bg) !important;
+    width: 100%;
+    height: 48px !important;
+    line-height: 46px !important;
+    font-family: var(--ac-display) !important;
+    font-size: 16px !important;
+    text-transform: none !important;
+}
+body.login .submit-row input[type="submit"]:hover {
+    background-color: var(--ac-accent-press) !important;
+}
+body.login .password-reset-link a { color: var(--ac-accent-text) !important; }
+
+/* --- the entity help panel ----------------------------------------- */
+
 .entity-help {
-    background: #fff;
-    border: 1px solid var(--academy-line);
-    border-left: 3px solid var(--academy-brand);
-    border-radius: 5px;
-    padding: 18px 22px;
-    margin: 0 0 18px;
-    max-width: 70em;
+    background: var(--ac-card);
+    border: 0;
+    border-left: 0;
+    border-radius: var(--ac-radius-lg);
+    box-shadow: var(--ac-shadow-md);
+    padding: 30px 34px;
+    margin: 0 0 22px;
+    max-width: 860px;
 }
 .entity-help h2 {
-    margin: 0 0 6px;
-    font-size: 16px;
-    color: var(--academy-ink) !important;
+    font-family: var(--ac-display) !important;
+    font-weight: 400 !important;
+    font-size: 26px !important;
+    margin: 0 0 12px;
+    color: var(--ac-ink) !important;
 }
 .entity-help .entity-help-summary {
-    margin: 0 0 14px;
-    font-size: 15px;
-    color: var(--academy-ink) !important;
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--ac-ink) !important;
+    margin: 0 0 22px;
+    max-width: 60ch;
+    text-wrap: pretty;
 }
-.entity-help dl { margin: 0; display: grid; grid-template-columns: 130px 1fr; gap: 8px 18px; }
+.entity-help dl { grid-template-columns: 150px 1fr; gap: 14px 24px; }
 .entity-help dt {
     font-size: 11px;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    color: var(--academy-ink-2) !important;
-    padding-top: 2px;
+    letter-spacing: 0.12em;
+    font-weight: 700;
+    color: var(--ac-ink-3) !important;
 }
-.entity-help dd { margin: 0; color: var(--academy-ink-2) !important; font-size: 14px; line-height: 1.55; }
-@media (max-width: 700px) {
-    .entity-help dl { grid-template-columns: 1fr; gap: 2px 0; }
-    .entity-help dd { margin-bottom: 10px; }
-}
-
-/* Key-fields list inside the entity help panel */
+.entity-help dd { font-size: 15px; line-height: 1.55; color: var(--ac-ink-2) !important; }
 .entity-help h3 {
-    margin: 20px 0 10px;
     font-size: 11px;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    color: var(--academy-ink-2) !important;
+    letter-spacing: 0.12em;
+    font-weight: 700;
+    color: var(--ac-ink-3) !important;
+    margin: 24px 0 14px;
 }
 .entity-help dl.entity-help-fields {
     grid-template-columns: 190px 1fr;
-    gap: 7px 18px;
-    border-top: 1px solid var(--academy-line);
-    padding-top: 12px;
-}
-.entity-help dl.entity-help-fields dt {
-    text-transform: none;
-    letter-spacing: 0;
-    font-size: 13px;
-    padding-top: 0;
+    gap: 12px 24px;
+    border-top: 1px solid rgba(32, 30, 29, 0.16);
+    padding-top: 20px;
 }
 .entity-help dl.entity-help-fields dt code {
-    background: #eef2f4;
-    color: var(--academy-ink) !important;
-    padding: 1px 6px;
-    border-radius: 3px;
+    background: var(--ac-sage-tint);
+    color: var(--ac-sage-ink) !important;
+    border-radius: var(--ac-pill);
+    padding: 3px 9px;
     font-size: 12.5px;
 }
-.entity-help-note {
-    margin: 14px 0 0;
-    font-size: 13px;
-    color: var(--academy-ink-2) !important;
-    font-style: italic;
-}
+.entity-help-note { font-size: 14px; color: var(--ac-ink-3) !important; }
+
 @media (max-width: 700px) {
+    .entity-help dl,
     .entity-help dl.entity-help-fields { grid-template-columns: 1fr; }
+    .entity-help dd { margin-bottom: 10px; }
+}
+
+/* --- the uploader (templates/admin/app/attachment/upload.html) ------
+ * That template styles itself from --academy-line / --academy-brand /
+ * --academy-ink, which this file no longer defines. Aliases keep it
+ * working unchanged; the rules below finish the job.
+ * ------------------------------------------------------------------ */
+
+:root {
+    --academy-ink:   #201e1d;
+    --academy-ink-2: #474238;
+    --academy-brand: #8c491a;
+    --academy-line:  #c0b6a5;
+}
+
+.dropzone {
+    border: 2px dashed var(--ac-line-strong) !important;
+    border-radius: var(--ac-radius-lg) !important;
+    background: var(--ac-card) !important;
+    padding: 54px 24px !important;
+}
+.dropzone.is-over {
+    border-color: var(--ac-accent) !important;
+    background: var(--ac-accent-tint) !important;
+}
+.dropzone h2 {
+    font-family: var(--ac-display) !important;
+    font-weight: 400 !important;
+    font-size: 24px !important;
+    color: var(--ac-ink) !important;
+}
+.dropzone p { color: var(--ac-ink-2) !important; font-size: 15px !important; }
+
+.queue li {
+    border: 0 !important;
+    border-radius: 20px !important;
+    background: var(--ac-card) !important;
+    box-shadow: var(--ac-shadow);
+    padding: 16px 22px !important;
+    margin-bottom: 10px !important;
+}
+.queue .name { color: var(--ac-ink) !important; font-size: 15px; }
+.queue .meta, .queue .size { color: var(--ac-ink-2) !important; }
+.queue .state.done   { color: var(--ac-sage-ink) !important; }
+.queue .state.failed { color: var(--ac-error) !important; }
+.bar { height: 8px !important; background: var(--ac-card-2) !important; border-radius: var(--ac-pill) !important; }
+.bar span { background: var(--ac-accent) !important; border-radius: var(--ac-pill); }
+.queue li .state.done ~ .bar span { background: var(--ac-sage) !important; }
+.summary, .kinds { color: var(--ac-ink-2) !important; }
+.kinds code {
+    background: var(--ac-sage-tint);
+    color: var(--ac-sage-ink);
+    border-radius: var(--ac-pill);
+    padding: 3px 10px;
+}
+
+/* --- misc ---------------------------------------------------------- */
+
+.loading-indicator { color: var(--ac-accent) !important; }
+.hr, hr { background: rgba(32, 30, 29, 0.16) !important; color: rgba(32, 30, 29, 0.16) !important; }
+code, pre { color: var(--ac-ink-2) !important; }
+.changeform-navigation-button { border-radius: var(--ac-pill) !important; }
+.changeform-navigation-button.left { border-radius: var(--ac-pill) 0 0 var(--ac-pill) !important; }
+.changeform-navigation-button.right { border-radius: 0 var(--ac-pill) var(--ac-pill) 0 !important; }
+
+/* Knowledge graph: icon only, like the add button. The glyph is inline
+   SVG rather than a JET icon-font character — its set has no graph. */
+.object-tools a.graphlink {
+    padding: 0 12px !important;
+    min-width: 40px;
+    justify-content: center;
+    background: transparent !important;
+    color: var(--ac-ink, #1f2a33) !important;
+    border: 1px solid var(--ac-line, #d8ded9) !important;
+}
+.object-tools a.graphlink svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+.object-tools a.graphlink:hover,
+.object-tools a.graphlink:focus {
+    background: var(--ac-accent-tint, #e3efeb) !important;
+    border-color: var(--ac-accent-text, #0e6555) !important;
+    color: var(--ac-accent-text, #0e6555) !important;
 }

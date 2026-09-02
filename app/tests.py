@@ -5,6 +5,7 @@ Run with `python manage.py test`, which uses an in-memory database — no
 server, no files left behind.
 """
 
+import re
 import tempfile
 import uuid
 from datetime import date, timedelta
@@ -20,7 +21,7 @@ from django.test import Client, RequestFactory, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from . import access, audit, entity_help, files, models
+from . import access, audit, columns, entity_help, files, models
 
 
 class Fixture(TestCase):
@@ -329,7 +330,9 @@ class SeedCurriculumTests(TestCase):
         )
         self.assertTrue(models.Grade.objects.get(short_name="S3").is_terminal)
         self.assertEqual(models.Subject.objects.count(), 18)
-        self.assertEqual(models.Topic.objects.count(), 156)
+        # 156 syllabus sections, plus Geography's 19 published sub-topics
+        self.assertEqual(models.Topic.objects.count(), 175)
+        self.assertEqual(models.Topic.objects.filter(parent__isnull=True).count(), 156)
         self.assertEqual(models.Syllabus.objects.filter(academic_year=2026).count(), 48)
 
     def test_seed_is_idempotent(self):
@@ -885,3 +888,371 @@ class EntityHelpFieldTests(TestCase):
         ]
 
         self.assertEqual(thin, [])
+
+
+class TopicHierarchyTests(Fixture):
+    """Topics nest, and the tree cannot be made invalid."""
+
+    def setUp(self):
+        self.programming = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-8", full_name="Programming",
+            created_by=self.user,
+        )
+        self.loops = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-8.1", full_name="Loops",
+            parent=self.programming, created_by=self.user,
+        )
+
+    def test_a_child_records_its_parent_depth_and_path(self):
+        self.assertEqual(self.loops.parent, self.programming)
+        self.assertEqual(self.programming.depth, 0)
+        self.assertEqual(self.loops.depth, 1)
+        self.assertEqual(self.loops.path, f"{self.programming.pk}/{self.loops.pk}")
+
+    def test_full_path_reads_as_a_trail(self):
+        self.assertEqual(self.loops.full_path, "Programming › Loops")
+
+    def test_descendants_and_ancestors(self):
+        counted = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-8.1.1", full_name="Counted loops",
+            parent=self.loops, created_by=self.user,
+        )
+
+        self.assertEqual(set(self.programming.descendants()), {self.loops, counted})
+        self.assertEqual(counted.ancestors(), [self.programming, self.loops])
+        self.assertEqual(counted.depth, 2)
+
+    def test_moving_a_topic_rewrites_its_descendants(self):
+        counted = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-8.1.1", full_name="Counted loops",
+            parent=self.loops, created_by=self.user,
+        )
+        other = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-9", full_name="Databases",
+            created_by=self.user,
+        )
+
+        self.loops.parent = other
+        self.loops.save()
+
+        counted.refresh_from_db()
+        self.assertEqual(counted.depth, 2)
+        self.assertTrue(counted.path.startswith(f"{other.pk}/{self.loops.pk}/"))
+        self.assertEqual(counted.ancestors(), [other, self.loops])
+
+    def test_a_topic_cannot_be_its_own_parent(self):
+        self.programming.parent = self.programming
+
+        with self.assertRaises(ValueError):
+            self.programming.save()
+
+    def test_a_topic_cannot_sit_under_its_own_child(self):
+        self.programming.parent = self.loops
+
+        with self.assertRaises(ValueError):
+            self.programming.save()
+
+    def test_a_parent_must_be_in_the_same_subject(self):
+        other_subject = models.Subject.objects.create(
+            short_name="PHY", full_name="Physics", created_by=self.user
+        )
+        stray = models.Topic.objects.create(
+            subject=other_subject, short_name="OL-1", full_name="Motion", created_by=self.user
+        )
+
+        self.loops.parent = stray
+        with self.assertRaises(ValueError):
+            self.loops.save()
+
+    def test_nesting_stops_at_the_depth_limit(self):
+        node = self.loops
+        for level in range(2, models.Topic.MAX_DEPTH + 1):
+            node = models.Topic.objects.create(
+                subject=self.subject, short_name=f"OL-8.{level}", full_name=f"Level {level}",
+                parent=node, created_by=self.user,
+            )
+
+        with self.assertRaises(ValueError):
+            models.Topic.objects.create(
+                subject=self.subject, short_name="OL-8.deep", full_name="Too deep",
+                parent=node, created_by=self.user,
+            )
+
+    def test_the_api_walks_the_tree(self):
+        client = APIClient()
+        client.force_authenticate(self.user)
+
+        children = client.get(f"/api/topics/{self.programming.pk}/children/")
+        roots = client.get("/api/topics/?root_only=true")
+
+        self.assertEqual(len(children.data), 1)
+        self.assertEqual(children.data[0]["full_name"], "Loops")
+        self.assertTrue(all(t["parent"] is None for t in roots.data["results"]))
+
+    def test_the_seeded_geography_topics_are_nested(self):
+        call_command("seed_curriculum", year=2026, stdout=StringIO())
+
+        theme_two = models.Topic.objects.get(
+            subject__short_name="GEO", short_name="OL-2"
+        )
+        rivers = models.Topic.objects.get(subject__short_name="GEO", short_name="OL-2.2")
+
+        self.assertEqual(rivers.parent, theme_two)
+        self.assertEqual(theme_two.children.count(), 5)
+        self.assertEqual(rivers.full_path, "Theme 2: The natural environment › Rivers")
+
+
+class TopicParentPickerTests(Fixture):
+    """The parent picker only ever offers valid parents."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.user)
+        self.programming = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-8", full_name="Programming",
+            created_by=self.user,
+        )
+        self.loops = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-8.1", full_name="Loops",
+            parent=self.programming, created_by=self.user,
+        )
+        self.other_subject = models.Subject.objects.create(
+            short_name="PHY", full_name="Physics", created_by=self.user
+        )
+        self.elsewhere = models.Topic.objects.create(
+            subject=self.other_subject, short_name="OL-1", full_name="Motion",
+            created_by=self.user,
+        )
+
+    def _autocomplete(self, **params):
+        query = {
+            "app_label": "app",
+            "model_name": "topic",
+            "field_name": "parent",
+            "term": "",
+            **params,
+        }
+        response = self.client.get("/admin/autocomplete/", query)
+        self.assertEqual(response.status_code, 200)
+        return [r["text"] for r in response.json()["results"]]
+
+    def test_results_are_limited_to_the_chosen_subject(self):
+        names = self._autocomplete(subject=self.subject.pk)
+
+        self.assertIn(str(self.programming), names)
+        self.assertNotIn(str(self.elsewhere), names)
+
+    def test_a_topic_is_not_offered_as_its_own_parent(self):
+        names = self._autocomplete(subject=self.subject.pk, exclude_topic=self.programming.pk)
+
+        self.assertNotIn(str(self.programming), names)
+
+    def test_descendants_are_not_offered_as_parents(self):
+        names = self._autocomplete(subject=self.subject.pk, exclude_topic=self.programming.pk)
+
+        self.assertNotIn(str(self.loops), names)
+
+    def test_search_narrows_by_term(self):
+        names = self._autocomplete(subject=self.subject.pk, term="Loop")
+
+        self.assertEqual(names, [str(self.loops)])
+
+    def test_the_change_form_loads_the_picker_assets(self):
+        body = self.client.get(
+            f"/admin/app/topic/{self.loops.pk}/change/"
+        ).content.decode(errors="ignore")
+
+        self.assertIn("js/topic-autocomplete.js", body)
+        self.assertIn("admin-autocomplete", body)
+
+    def test_the_sort_column_is_headed_sort(self):
+        body = self.client.get("/admin/app/topic/").content.decode(errors="ignore")
+
+        self.assertIn(">Sort<", body)
+        self.assertNotIn(">Sort order<", body)
+
+
+class ColumnTruncationTests(Fixture):
+    """Long text is cut in tables; everything else is left alone."""
+
+    LONG = ("Relationships of organisms with one another and with the physical environment "
+            "and the consequences for conservation")
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_shorten_keeps_short_values_whole(self):
+        self.assertEqual(columns.shorten("Rivers"), "Rivers")
+
+    def test_shorten_cuts_at_45_plus_an_ellipsis(self):
+        result = columns.shorten(self.LONG)
+
+        self.assertEqual(len(result), columns.MAX_LENGTH)
+        self.assertTrue(result.endswith("..."))
+        self.assertTrue(self.LONG.startswith(result[:-3].rstrip()))
+
+    def test_a_value_of_exactly_the_limit_is_untouched(self):
+        exact = "x" * columns.MAX_LENGTH
+
+        self.assertEqual(columns.shorten(exact), exact)
+
+    def test_non_text_passes_through(self):
+        self.assertEqual(columns.shorten(42), 42)
+        self.assertIs(columns.shorten(True), True)
+        self.assertIsNone(columns.shorten(None))
+
+    def test_the_change_list_truncates_long_names(self):
+        models.Topic.objects.create(
+            subject=self.subject, short_name="OL-19", full_name=self.LONG,
+            created_by=self.user,
+        )
+
+        body = self.client.get("/admin/app/topic/").content.decode(errors="ignore")
+        cells = re.findall(r'<th class="field-indented_name">(.*?)</th>', body, re.S)
+        visible = " ".join(re.sub(r"<[^>]+>", "", cell) for cell in cells)
+
+        self.assertNotIn(self.LONG, visible)          # the cell shows the short form
+        self.assertIn(self.LONG[:columns.KEEP].rstrip() + "...", visible)
+        self.assertIn(f'title="{self.LONG}"', body)   # the full value is on hover
+
+    def test_the_full_value_is_on_hover(self):
+        models.Topic.objects.create(
+            subject=self.subject, short_name="OL-20", full_name=self.LONG,
+            created_by=self.user,
+        )
+
+        body = self.client.get("/admin/app/topic/").content.decode(errors="ignore")
+
+        self.assertIn(f'title="{self.LONG}"', body)
+
+    def test_boolean_columns_keep_their_icon(self):
+        body = self.client.get("/admin/app/topic/").content.decode(errors="ignore")
+
+        self.assertIn("icon-yes", body)
+
+    def test_html_columns_are_not_mangled(self):
+        """The indented topic tree builds its own markup."""
+        parent = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-21", full_name="Programming",
+            created_by=self.user,
+        )
+        models.Topic.objects.create(
+            subject=self.subject, short_name="OL-21.1", full_name="Loops",
+            parent=parent, created_by=self.user,
+        )
+
+        body = self.client.get("/admin/app/topic/").content.decode(errors="ignore")
+
+        self.assertIn('<strong title="Programming">Programming</strong>', body)
+        self.assertIn("└", body)
+
+    def test_dates_still_render_as_dates(self):
+        models.Attachment.objects.create(
+            original_filename="notes.pdf", mime_type="application/pdf",
+            kind="text", size_bytes=10, checksum="abc", created_by=self.user,
+        )
+
+        body = self.client.get("/admin/app/attachment/").content.decode(errors="ignore")
+
+        self.assertNotIn("datetime.datetime", body)
+
+
+class KnowledgeGraphTests(Fixture):
+    """The graph page and the tree endpoint behind it."""
+
+    def setUp(self):
+        self.programming = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-8", full_name="Programming",
+            sort_order=1, created_by=self.user,
+        )
+        self.loops = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-8.1", full_name="Loops",
+            parent=self.programming, sort_order=1, created_by=self.user,
+        )
+        self.counted = models.Topic.objects.create(
+            subject=self.subject, short_name="OL-8.1.1", full_name="Counted loops",
+            parent=self.loops, sort_order=1, created_by=self.user,
+        )
+        self.api = APIClient()
+        self.api.force_authenticate(self.user)
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def tree(self):
+        response = self.api.get(f"/api/topics/tree/?subject={self.subject.pk}")
+        self.assertEqual(response.status_code, 200)
+        return response.data
+
+    def test_the_subject_is_the_root(self):
+        payload = self.tree()
+
+        self.assertEqual(payload["type"], "subject")
+        self.assertEqual(payload["name"], self.subject.full_name)
+        self.assertEqual(payload["depth"], 0)
+
+    def test_topics_nest_to_any_depth(self):
+        payload = self.tree()
+
+        programming = next(c for c in payload["children"] if c["name"] == "Programming")
+        loops = programming["children"][0]
+
+        self.assertEqual(loops["name"], "Loops")
+        self.assertEqual(loops["children"][0]["name"], "Counted loops")
+        self.assertEqual(loops["children"][0]["depth"], 3)
+
+    def test_leaves_have_no_children(self):
+        payload = self.tree()
+        comprehension = next(c for c in payload["children"] if c["name"] == "Comprehension")
+
+        self.assertEqual(comprehension["children"], [])
+
+    def test_question_counts_ride_along(self):
+        models.Question.objects.create(
+            topic=self.loops, name="Q1", question_text="?",
+            question_type=models.QuestionType.BINARY, created_by=self.user,
+        )
+
+        payload = self.tree()
+        programming = next(c for c in payload["children"] if c["name"] == "Programming")
+
+        self.assertEqual(programming["children"][0]["question_count"], 1)
+        self.assertEqual(programming["question_count"], 0)
+
+    def test_voided_topics_are_left_out(self):
+        self.loops.void(user=self.user, reason="merged")
+
+        payload = self.tree()
+        programming = next(c for c in payload["children"] if c["name"] == "Programming")
+
+        self.assertEqual(programming["children"], [])
+
+    def test_a_missing_subject_is_a_clear_error(self):
+        self.assertEqual(self.api.get("/api/topics/tree/").status_code, 400)
+        self.assertEqual(self.api.get("/api/topics/tree/?subject=99999").status_code, 404)
+
+    def test_the_page_renders_with_a_subject_picker(self):
+        response = self.client.get("/admin/app/topic/graph/")
+        body = response.content.decode(errors="ignore")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="kg-subject"', body)
+        self.assertIn("d3.min.js", body)
+        self.assertIn("/api/topics/tree/", body)
+
+    def test_the_topic_list_links_to_the_graph(self):
+        body = self.client.get("/admin/app/topic/").content.decode(errors="ignore")
+
+        self.assertIn("/admin/app/topic/graph/", body)
+        self.assertIn('aria-label="Knowledge graph"', body)
+        self.assertIn("<svg", body.split("/admin/app/topic/graph/")[1][:400])
+        # icon only: no words, and not JET's plus
+        anchor = body.split('/admin/app/topic/graph/"')[1].split("</a>")[0]
+        self.assertNotIn("addlink", anchor)
+        self.assertNotIn("Knowledge graph<", anchor)
+
+    def test_the_page_needs_a_login(self):
+        response = Client().get("/admin/app/topic/graph/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response["Location"])
