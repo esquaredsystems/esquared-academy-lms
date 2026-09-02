@@ -1,0 +1,9 @@
+{% extends "admin/academy_change_list.html" %}
+
+{# Put the drag-and-drop uploader next to the add and help buttons. #}
+{% block object-tools-items %}
+  <li>
+    <a href="{% url 'admin:app_attachment_upload' %}" class="addlink uploadlink">Upload files</a>
+  </li>
+  {{ block.super }}
+{% endblock %}

@@ -1,0 +1,218 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Upload files · {{ block.super }}{% endblock %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <style>
+    .uploader { max-width: 900px; }
+    .dropzone {
+      border: 2px dashed var(--academy-line, #b7c1c9);
+      border-radius: 6px;
+      padding: 48px 24px;
+      text-align: center;
+      background: #fff;
+      transition: border-color .15s, background .15s;
+      cursor: pointer;
+    }
+    .dropzone.is-over {
+      border-color: var(--academy-brand, #0e6555);
+      background: #f2f8f6;
+    }
+    .dropzone h2 { margin: 0 0 6px; font-size: 18px; color: var(--academy-ink, #1f2a33); }
+    .dropzone p  { margin: 0; color: var(--academy-ink-2, #41505d); font-size: 14px; }
+    .dropzone input[type=file] { display: none; }
+
+    .queue { list-style: none; margin: 24px 0 0; padding: 0; }
+    .queue li {
+      display: grid;
+      grid-template-columns: 1fr 90px 120px;
+      gap: 14px;
+      align-items: center;
+      padding: 12px 14px;
+      border: 1px solid var(--academy-line, #b7c1c9);
+      border-radius: 5px;
+      background: #fff;
+      margin-bottom: 8px;
+    }
+    .queue .name { font-weight: 600; color: var(--academy-ink, #1f2a33); word-break: break-all; }
+    .queue .meta { font-size: 12px; color: var(--academy-ink-2, #41505d); }
+    .queue .size { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+    .queue .state { font-size: 13px; text-align: right; }
+    .queue .state.done   { color: var(--academy-brand, #0e6555); font-weight: 600; }
+    .queue .state.failed { color: #b3261e; font-weight: 600; }
+    .bar { grid-column: 1 / -1; height: 6px; background: #e6ebee; border-radius: 3px; overflow: hidden; }
+    .bar span { display: block; height: 100%; width: 0; background: var(--academy-brand, #0e6555); transition: width .2s; }
+    .summary { margin-top: 18px; font-size: 14px; color: var(--academy-ink-2, #41505d); }
+    .kinds { margin-top: 10px; font-size: 13px; color: var(--academy-ink-2, #41505d); }
+    .kinds code { background: #eef2f4; padding: 1px 5px; border-radius: 3px; }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="uploader">
+  <h1>Upload files</h1>
+
+  <div class="dropzone" id="dropzone" tabindex="0" role="button"
+       aria-label="Drop files here or press Enter to choose files">
+    <h2>Drop files here</h2>
+    <p>or click to choose. Any size — large files are sent in {{ chunk_size_display }} pieces
+       and resume from where they stopped.</p>
+    <input type="file" id="picker" multiple>
+  </div>
+
+  <p class="kinds">
+    Files are filed by kind under the media root:
+    <code>picture</code> <code>video</code> <code>audio</code> <code>text</code> <code>other</code>.
+    Re-uploading a file that is already stored reuses the existing record rather than
+    keeping two copies.
+  </p>
+
+  <ul class="queue" id="queue"></ul>
+  <p class="summary" id="summary"></p>
+</div>
+
+<script>
+(function () {
+  const CHUNK_SIZE = {{ chunk_size }};
+  const dropzone = document.getElementById('dropzone');
+  const picker = document.getElementById('picker');
+  const queue = document.getElementById('queue');
+  const summary = document.getElementById('summary');
+  let done = 0, failed = 0;
+
+  function csrfToken() {
+    const match = document.cookie.match(/(^|;)\s*csrftoken=([^;]+)/);
+    return match ? decodeURIComponent(match[2]) : '';
+  }
+
+  function humanSize(bytes) {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes, unit = 0;
+    while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
+    return (unit === 0 ? size : size.toFixed(1)) + ' ' + units[unit];
+  }
+
+  function row(file) {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div>
+        <div class="name"></div>
+        <div class="meta"></div>
+      </div>
+      <div class="size"></div>
+      <div class="state">waiting</div>
+      <div class="bar"><span></span></div>`;
+    li.querySelector('.name').textContent = file.name;
+    li.querySelector('.meta').textContent = file.type || 'unknown type';
+    li.querySelector('.size').textContent = humanSize(file.size);
+    queue.appendChild(li);
+    return {
+      state: li.querySelector('.state'),
+      bar: li.querySelector('.bar span'),
+      meta: li.querySelector('.meta'),
+    };
+  }
+
+  function tally() {
+    const parts = [];
+    if (done) parts.push(done + ' uploaded');
+    if (failed) parts.push(failed + ' failed');
+    summary.textContent = parts.join(' · ');
+  }
+
+  async function send(url, options) {
+    const response = await fetch(url, {
+      credentials: 'same-origin',
+      headers: Object.assign({ 'X-CSRFToken': csrfToken() }, options.headers || {}),
+      ...options,
+    });
+    if (!response.ok) {
+      let detail = response.statusText;
+      try { detail = JSON.stringify(await response.json()); } catch (e) { /* not json */ }
+      throw new Error(detail);
+    }
+    return response.json();
+  }
+
+  async function upload(file) {
+    const ui = row(file);
+    try {
+      ui.state.textContent = 'starting';
+      const session = await send('/api/uploads/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          mime_type: file.type || '',
+          size_bytes: file.size,
+        }),
+      });
+
+      const chunkSize = session.chunk_size || CHUNK_SIZE;
+      let offset = 0;
+      while (offset < file.size) {
+        const slice = file.slice(offset, offset + chunkSize);
+        const progress = await send(`/api/uploads/${session.uuid}/chunk/`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'Content-Disposition': 'attachment; filename="chunk"',
+            'X-Chunk-Offset': String(offset),
+          },
+          body: slice,
+        });
+        offset = progress.received;
+        const pct = Math.round((offset / file.size) * 100);
+        ui.bar.style.width = pct + '%';
+        ui.state.textContent = pct + '%';
+      }
+
+      const attachment = await send(`/api/uploads/${session.uuid}/complete/`, { method: 'POST' });
+      ui.bar.style.width = '100%';
+      ui.state.textContent = 'stored';
+      ui.state.classList.add('done');
+      ui.meta.textContent = `${attachment.kind} · ${attachment.size_display}`;
+      done++;
+    } catch (error) {
+      ui.state.textContent = 'failed';
+      ui.state.classList.add('failed');
+      ui.meta.textContent = String(error.message || error);
+      failed++;
+    }
+    tally();
+  }
+
+  async function handle(fileList) {
+    for (const file of Array.from(fileList)) {
+      await upload(file);   // one at a time, so progress is honest
+    }
+  }
+
+  dropzone.addEventListener('click', () => picker.click());
+  dropzone.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); picker.click(); }
+  });
+  picker.addEventListener('change', () => handle(picker.files));
+
+  ['dragenter', 'dragover'].forEach((name) =>
+    dropzone.addEventListener(name, (event) => {
+      event.preventDefault();
+      dropzone.classList.add('is-over');
+    })
+  );
+  ['dragleave', 'drop'].forEach((name) =>
+    dropzone.addEventListener(name, (event) => {
+      event.preventDefault();
+      dropzone.classList.remove('is-over');
+    })
+  );
+  dropzone.addEventListener('drop', (event) => {
+    if (event.dataTransfer && event.dataTransfer.files.length) {
+      handle(event.dataTransfer.files);
+    }
+  });
+})();
+</script>
+{% endblock %}

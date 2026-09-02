@@ -13,6 +13,12 @@ Extra actions worth knowing about:
     GET  /api/questions/{id}/group_parts/
     GET  /api/attempts/{id}/answers/
     GET  /api/answers/{id}/evaluations/
+
+    POST /api/attendance-sessions/{id}/mark/   mark a whole register at once
+
+    POST /api/uploads/                  start a chunked upload
+    PUT  /api/uploads/{uuid}/chunk/     append bytes
+    POST /api/uploads/{uuid}/complete/  store the assembled file
 """
 
 from django.urls import include, path
@@ -66,6 +72,16 @@ router.register(
 router.register("attempts", views.AttemptViewSet, basename="attempt")
 router.register("answers", views.AnswerViewSet, basename="answer")
 router.register("evaluations", views.EvaluationViewSet, basename="evaluation")
+
+# attendance and guardians
+router.register("attendance-sessions", views.AttendanceSessionViewSet, basename="attendancesession")
+router.register("attendance-records", views.AttendanceRecordViewSet, basename="attendancerecord")
+router.register("guardian-links", views.GuardianLinkViewSet, basename="guardianlink")
+
+# files
+router.register("attachments", views.AttachmentViewSet, basename="attachment")
+router.register("attachment-links", views.AttachmentLinkViewSet, basename="attachmentlink")
+router.register("uploads", views.UploadSessionViewSet, basename="upload")
 
 # retention
 router.register(

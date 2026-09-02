@@ -1,5 +1,5 @@
 """
-E Squared Academy — assessment platform models.
+Esquared Academy — assessment platform models.
 
 Mirrors the published ERD (schema v2):
 
@@ -14,12 +14,20 @@ Mirrors the published ERD (schema v2):
     paper_item pins the prompt version it will be marked by.
 """
 
+import os
+import uuid as uuid_lib
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
+from django.contrib.contenttypes.models import ContentType
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
+
+from . import files
+from .audit import get_current_user
 
 USER = settings.AUTH_USER_MODEL
 
@@ -108,7 +116,20 @@ class ActiveManager(models.Manager):
 
 
 class AuditModel(models.Model):
-    """The eight audit columns carried by every table in the schema."""
+    """
+    The audit block carried by every table in the schema.
+
+    It is self-controlled. `uuid`, `created_by` and `date_created` are set
+    once at insert and are restored from the database on every subsequent
+    save, so nothing — admin, API or a careless script — can rewrite them.
+    `changed_by` and `date_changed` are stamped automatically on update
+    from the request user (see app/audit.py). The only audit fields a
+    person may set are `voided` and `void_reason`, through `void()` or the
+    admin.
+    """
+
+    #: Stable external identifier. Assigned at insert, never changes.
+    uuid = models.UUIDField(default=uuid_lib.uuid4, editable=False, unique=True)
 
     created_by = models.ForeignKey(
         USER, on_delete=models.PROTECT, related_name="+", null=True, blank=True,
@@ -145,19 +166,50 @@ class AuditModel(models.Model):
         abstract = True
         base_manager_name = "all_objects"
 
+    #: Set once at insert and restored on every later save.
+    IMMUTABLE_AUDIT_FIELDS = ("uuid", "created_by_id", "date_created")
+
     def save(self, *args, **kwargs):
+        actor = get_current_user()
+
         if self.pk:
+            # Restore the write-once fields from the stored row, so an
+            # attempt to change them is silently ignored rather than
+            # trusted. One cheap query, values() only.
+            stored = (
+                type(self)
+                .all_objects.filter(pk=self.pk)
+                .values(*self.IMMUTABLE_AUDIT_FIELDS)
+                .first()
+            )
+            if stored:
+                for field, value in stored.items():
+                    setattr(self, field, value)
             self.date_changed = timezone.now()
+            if actor is not None:
+                self.changed_by = actor
+        else:
+            if self.created_by_id is None and actor is not None:
+                self.created_by = actor
+            if not self.date_created:
+                self.date_created = timezone.now()
+
         self.active_flag = None if self.voided else True
+
         if kwargs.get("update_fields") is not None:
-            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"active_flag"}
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {
+                "active_flag", "date_changed", "changed_by",
+            }
         super().save(*args, **kwargs)
 
     def void(self, user=None, reason="", save=True):
-        """Soft delete. The only supported way to remove a row."""
+        """
+        Soft delete. The only supported way to remove a row, and — with
+        `void_reason` — the only part of the audit block a person may set.
+        """
         self.voided = True
         self.date_voided = timezone.now()
-        self.voided_by = user
+        self.voided_by = user or get_current_user()
         self.void_reason = reason or "voided"
         self.active_flag = None
         if save:
@@ -170,7 +222,7 @@ class AuditModel(models.Model):
         self.voided_by = None
         self.void_reason = None
         self.active_flag = True
-        self.changed_by = user
+        self.changed_by = user or get_current_user()
         if save:
             self.save()
         return self
@@ -352,6 +404,7 @@ class Topic(AuditModel):
     )
     sort_order = models.IntegerField(default=0)
     visible = models.BooleanField(default=True)
+    attachments = GenericRelation("AttachmentLink", related_query_name="topic")
 
     class Meta(AuditModel.Meta):
         db_table = "topic"
@@ -556,6 +609,7 @@ class Question(AuditModel):
     )
     stamp = models.CharField(max_length=64, null=True, blank=True)
     visible = models.BooleanField(default=True)
+    attachments = GenericRelation("AttachmentLink", related_query_name="question")
 
     class Meta(AuditModel.Meta):
         db_table = "question"
@@ -651,6 +705,7 @@ class QuestionPaper(AuditModel):
     owner = models.ForeignKey(
         USER, on_delete=models.PROTECT, null=True, blank=True, related_name="owned_papers"
     )
+    attachments = GenericRelation("AttachmentLink", related_query_name="question_paper")
 
     class Meta(AuditModel.Meta):
         db_table = "question_paper"
@@ -927,6 +982,7 @@ class Answer(AuditModel):
     text_response = models.TextField(null=True, blank=True)
     response_summary = models.TextField(null=True, blank=True)
     date_answered = models.DateTimeField(default=timezone.now)
+    attachments = GenericRelation("AttachmentLink", related_query_name="answer")
 
     class Meta(AuditModel.Meta):
         db_table = "answer"
@@ -1028,3 +1084,312 @@ class PurgeRun(models.Model):
 
     def __str__(self):
         return f"{self.target_table} · {self.rows_purged} rows · {self.date_run:%Y-%m-%d}"
+
+
+
+# ---------------------------------------------------------------------
+# Guardians
+# ---------------------------------------------------------------------
+class GuardianLink(AuditModel):
+    """
+    A guardian's login, tied to the students they may see.
+
+    `student.guardian_name` and `guardian_contact` stay as the contact
+    details on the student record. This is the access relationship: a
+    guardian account sees exactly the students linked here and nothing
+    else, enforced in app/access.py.
+    """
+
+    user = models.ForeignKey(USER, on_delete=models.PROTECT, related_name="wards")
+    student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name="guardians")
+    relationship = models.CharField(
+        max_length=32, default="guardian", help_text="father, mother, guardian, other."
+    )
+    is_primary = models.BooleanField(default=False)
+    can_view_marks = models.BooleanField(default=True)
+
+    class Meta(AuditModel.Meta):
+        db_table = "guardian_link"
+        constraints = [unique_active(["user", "student"], "guardian_link_uix")]
+
+    def __str__(self):
+        return f"{self.user} → {self.student} ({self.relationship})"
+
+
+# ---------------------------------------------------------------------
+# Attendance
+# ---------------------------------------------------------------------
+class AttendanceStatus(models.TextChoices):
+    PRESENT = "present", "Present"
+    ABSENT = "absent", "Absent"
+    LATE = "late", "Late"
+    EXCUSED = "excused", "Excused absence"
+    LEAVE = "leave", "Approved leave"
+
+
+class AttendanceSession(AuditModel):
+    """
+    One register: a grade, on a date, for a period.
+
+    `syllabus` is optional. Leave it empty for a day or homeroom register;
+    set it to take attendance for one subject's lesson, which is what a
+    teacher marking their own class needs.
+    """
+
+    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, related_name="attendance_sessions")
+    academic_year = models.IntegerField()
+    date = models.DateField(default=timezone.localdate)
+    period = models.CharField(
+        max_length=32, default="full_day",
+        help_text="full_day, or a period label such as '1' or 'assembly'.",
+    )
+    syllabus = models.ForeignKey(
+        Syllabus, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="attendance_sessions",
+        help_text="Set for a subject lesson; empty for a whole-day register.",
+    )
+    taken_by = models.ForeignKey(
+        USER, on_delete=models.PROTECT, null=True, blank=True, related_name="registers_taken"
+    )
+    is_finalised = models.BooleanField(default=False)
+    notes = models.TextField(blank=True, default="")
+    syllabus_key = models.PositiveBigIntegerField(
+        default=0, editable=False,
+        help_text=(
+            "syllabus_id, or 0 for a whole-day register. The unique key uses "
+            "this instead of syllabus, because NULLs are distinct in a unique "
+            "index — two day registers for the same date would not collide."
+        ),
+    )
+
+    def save(self, *args, **kwargs):
+        self.syllabus_key = self.syllabus_id or 0
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"syllabus_key"}
+        super().save(*args, **kwargs)
+
+    class Meta(AuditModel.Meta):
+        db_table = "attendance_session"
+        ordering = ["-date", "period"]
+        indexes = [models.Index(fields=["grade", "date"]), models.Index(fields=["academic_year"])]
+        constraints = [
+            unique_active(
+                ["grade", "academic_year", "date", "period", "syllabus_key"],
+                "attendance_session_uix",
+            )
+        ]
+
+    def __str__(self):
+        subject = f" · {self.syllabus.subject.short_name}" if self.syllabus_id else ""
+        return f"{self.grade.short_name} · {self.date}{subject} ({self.period})"
+
+    @property
+    def summary(self):
+        """Counts by status, for the register header and reports."""
+        counts = {}
+        for record in self.records.all():
+            counts[record.status] = counts.get(record.status, 0) + 1
+        return counts
+
+
+class AttendanceRecord(AuditModel):
+    """One student's mark in one register."""
+
+    session = models.ForeignKey(
+        AttendanceSession, on_delete=models.PROTECT, related_name="records"
+    )
+    enrolment = models.ForeignKey(
+        Enrolment, on_delete=models.PROTECT, related_name="attendance_records"
+    )
+    status = models.CharField(
+        max_length=16, choices=AttendanceStatus.choices, default=AttendanceStatus.PRESENT
+    )
+    minutes_late = models.PositiveIntegerField(null=True, blank=True)
+    note = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta(AuditModel.Meta):
+        db_table = "attendance_record"
+        ordering = ["session", "enrolment"]
+        indexes = [models.Index(fields=["status"])]
+        constraints = [unique_active(["session", "enrolment"], "attendance_record_uix")]
+
+    def __str__(self):
+        return f"{self.enrolment.student} · {self.session.date} · {self.get_status_display()}"
+
+    @property
+    def student(self):
+        return self.enrolment.student
+
+# ---------------------------------------------------------------------
+# Attachments
+#
+# One root directory, a flat folder per kind, and a link table so any row
+# in the system can carry files without every model growing its own
+# columns. Uploads of any size arrive in chunks through UploadSession.
+# ---------------------------------------------------------------------
+class Attachment(AuditModel):
+    """A stored file: image, PDF, audio, video or anything else."""
+
+    file = models.FileField(upload_to=files.attachment_path, max_length=255)
+    original_filename = models.CharField(max_length=255)
+    kind = models.CharField(
+        max_length=16, choices=files.FileKind.choices, default=files.FileKind.OTHER,
+        help_text="Decided from the MIME type, with the extension as fallback.",
+    )
+    mime_type = models.CharField(max_length=128, blank=True, default="")
+    size_bytes = models.BigIntegerField(default=0)
+    checksum = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="SHA-256 of the contents. Re-uploading the same file reuses this row.",
+    )
+    title = models.CharField(max_length=255, blank=True, default="")
+    caption = models.TextField(blank=True, default="")
+    #: Filled in for pictures and video where the values are known.
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta(AuditModel.Meta):
+        db_table = "attachment"
+        ordering = ["-date_created"]
+        indexes = [models.Index(fields=["kind"]), models.Index(fields=["checksum"])]
+        constraints = [unique_active(["checksum"], "attachment_checksum_uix")]
+
+    def __str__(self):
+        return self.title or self.original_filename
+
+    @property
+    def size_display(self):
+        return files.human_size(self.size_bytes)
+
+    def save(self, *args, **kwargs):
+        if not self.kind or self.kind == files.FileKind.OTHER:
+            self.kind = files.classify(self.mime_type, self.original_filename)
+        super().save(*args, **kwargs)
+
+
+class AttachmentLink(AuditModel):
+    """
+    Attaches a file to any row in the system — a question, an answer, a
+    topic, a paper. `role` says what the file is for on that row, so a
+    question can carry a figure and a mark-scheme scan at once.
+    """
+
+    attachment = models.ForeignKey(Attachment, on_delete=models.PROTECT, related_name="links")
+    content_type = models.ForeignKey(ContentType, on_delete=models.PROTECT)
+    object_id = models.PositiveBigIntegerField()
+    target = GenericForeignKey("content_type", "object_id")
+    role = models.CharField(
+        max_length=32, default="attachment",
+        help_text="e.g. figure, diagram, mark_scheme, submission, resource.",
+    )
+    sort_order = models.IntegerField(default=0)
+
+    class Meta(AuditModel.Meta):
+        db_table = "attachment_link"
+        ordering = ["sort_order", "id"]
+        indexes = [models.Index(fields=["content_type", "object_id"])]
+        constraints = [
+            unique_active(
+                ["attachment", "content_type", "object_id", "role"],
+                "attachment_link_uix",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.attachment} → {self.target} ({self.role})"
+
+
+class UploadState(models.TextChoices):
+    OPEN = "open", "Open"
+    COMPLETED = "completed", "Completed"
+    ABORTED = "aborted", "Aborted"
+
+
+class UploadSession(AuditModel):
+    """
+    A large upload in progress.
+
+    The browser slices the file and PUTs one chunk at a time; each chunk is
+    appended to a part file under `_incoming/`. Nothing is held in memory
+    and nothing needs the whole file in one request, so upload size is
+    limited by disk rather than by the web server's body limit. `received`
+    lets an interrupted upload resume where it stopped.
+    """
+
+    filename = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=128, blank=True, default="")
+    declared_size = models.BigIntegerField(default=0)
+    received = models.BigIntegerField(default=0)
+    state = models.CharField(max_length=16, choices=UploadState.choices, default=UploadState.OPEN)
+    attachment = models.ForeignKey(
+        Attachment, on_delete=models.PROTECT, null=True, blank=True, related_name="upload_sessions"
+    )
+
+    class Meta(AuditModel.Meta):
+        db_table = "upload_session"
+        ordering = ["-date_created"]
+
+    def __str__(self):
+        return f"{self.filename} ({self.received}/{self.declared_size})"
+
+    @property
+    def part_path(self):
+        from django.conf import settings
+
+        return os.path.join(settings.MEDIA_ROOT, "_incoming", f"{self.uuid}.part")
+
+    def append(self, data, offset=None):
+        """Append one chunk. `offset` guards against out-of-order chunks."""
+        os.makedirs(os.path.dirname(self.part_path), exist_ok=True)
+        if offset is not None and int(offset) != self.received:
+            raise ValueError(
+                f"Chunk starts at {offset} but {self.received} bytes are stored. "
+                "Resume from the reported offset."
+            )
+        with open(self.part_path, "ab") as part:
+            part.write(data)
+        self.received = os.path.getsize(self.part_path)
+        self.save(update_fields=["received"])
+        return self.received
+
+    def complete(self):
+        """Turn the assembled part file into an Attachment."""
+        from django.core.files import File
+
+        if self.state != UploadState.OPEN:
+            raise ValueError("This upload is already finished.")
+        if not os.path.exists(self.part_path):
+            raise ValueError("No chunks were received for this upload.")
+
+        with open(self.part_path, "rb") as part:
+            checksum = files.sha256_of(part)
+
+            existing = Attachment.objects.filter(checksum=checksum).first()
+            if existing:
+                attachment = existing          # same bytes already stored
+            else:
+                attachment = Attachment(
+                    original_filename=self.filename,
+                    mime_type=self.mime_type,
+                    kind=files.classify(self.mime_type, self.filename),
+                    size_bytes=os.path.getsize(self.part_path),
+                    checksum=checksum,
+                    created_by=self.created_by,
+                )
+                attachment.file.save(self.filename, File(part), save=False)
+                attachment.save()
+
+        os.remove(self.part_path)
+        self.attachment = attachment
+        self.state = UploadState.COMPLETED
+        self.save(update_fields=["attachment", "state"])
+        return attachment
+
+    def abort(self, reason="upload cancelled"):
+        if os.path.exists(self.part_path):
+            os.remove(self.part_path)
+        self.state = UploadState.ABORTED
+        self.save(update_fields=["state"])
+        self.void(reason=reason)
+        return self

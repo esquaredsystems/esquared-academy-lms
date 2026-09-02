@@ -11,15 +11,23 @@ House rules, applied by `AuditedModelViewSet` to every resource:
     cannot set them.
 """
 
-from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import filters, status, viewsets
+from rest_framework import filters, mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.parsers import (
+    FileUploadParser,
+    FormParser,
+    JSONParser,
+    MultiPartParser,
+)
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 
+from . import access
+from . import files as app_files
 from . import models, serializers
 
 INCLUDE_VOIDED = OpenApiParameter(
@@ -37,7 +45,9 @@ INCLUDE_VOIDED = OpenApiParameter(
 class AuditedModelViewSet(viewsets.ModelViewSet):
     """Base viewset: soft deletion, audit stamping, voided-row filtering."""
 
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    # Model permissions come from the role's group (manage.py seed_roles);
+    # which rows the role then sees comes from access.scope_queryset.
+    permission_classes = [IsAuthenticated, access.RolePermission]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
 
     def get_queryset(self):
@@ -49,17 +59,20 @@ class AuditedModelViewSet(viewsets.ModelViewSet):
         ).lower() in {"1", "true", "yes"}
         if not include_voided and hasattr(model, "voided"):
             qs = qs.filter(voided=False)
-        return qs
+        return access.scope_queryset(getattr(self.request, "user", None), qs)
 
     def _user(self):
         user = getattr(self.request, "user", None)
         return user if getattr(user, "is_authenticated", False) else None
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self._user())
+        # created_by and date_created are stamped by AuditModel.save() from
+        # the request user; passing them here would be ignored anyway.
+        serializer.save()
 
     def perform_update(self, serializer):
-        serializer.save(changed_by=self._user(), date_changed=timezone.now())
+        # Likewise changed_by and date_changed.
+        serializer.save()
 
     def destroy(self, request, *args, **kwargs):
         """DELETE voids the row. A reason may be supplied in the body."""
@@ -460,3 +473,240 @@ class PurgeRunViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ["target_table", "ran_by"]
     ordering_fields = ["date_run", "rows_purged"]
+
+
+# ---------------------------------------------------------------------
+# Attachments and uploads
+# ---------------------------------------------------------------------
+class AttachmentViewSet(AuditedModelViewSet):
+    """
+    Stored files. Every file lives under the media root in a flat folder
+    for its kind — text, audio, video, picture, other.
+
+    Small files can be POSTed here as multipart. Large ones go through
+    /api/uploads/, which sends them in chunks.
+    """
+
+    serializer_class = serializers.AttachmentSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    filterset_fields = ["kind", "mime_type", "checksum"]
+    search_fields = ["original_filename", "title", "caption"]
+    ordering_fields = ["date_created", "size_bytes", "original_filename"]
+
+    def create(self, request, *args, **kwargs):
+        """Direct multipart upload, for files small enough for one request."""
+        upload = request.FILES.get("file")
+        if not upload:
+            raise ValidationError({"file": "No file was sent."})
+
+        checksum = app_files.sha256_of(upload)
+        existing = models.Attachment.objects.filter(checksum=checksum).first()
+        if existing:
+            # Same bytes already stored — hand back the row we have.
+            return Response(
+                self.get_serializer(existing).data, status=status.HTTP_200_OK
+            )
+
+        attachment = models.Attachment(
+            original_filename=upload.name,
+            mime_type=getattr(upload, "content_type", "") or "",
+            kind=app_files.classify(getattr(upload, "content_type", ""), upload.name),
+            size_bytes=upload.size,
+            checksum=checksum,
+            title=request.data.get("title", ""),
+            caption=request.data.get("caption", ""),
+        )
+        attachment.file.save(upload.name, upload, save=False)
+        attachment.save()
+        return Response(
+            self.get_serializer(attachment).data, status=status.HTTP_201_CREATED
+        )
+
+
+class AttachmentLinkViewSet(AuditedModelViewSet):
+    """Attaches a file to a row — a question, an answer, a topic, a paper."""
+
+    serializer_class = serializers.AttachmentLinkSerializer
+    filterset_fields = ["attachment", "content_type", "object_id", "role"]
+    ordering_fields = ["sort_order"]
+
+
+@extend_schema_view(
+    create=extend_schema(
+        request=serializers.UploadInitSerializer,
+        responses=serializers.UploadSessionSerializer,
+        description=(
+            "Start a chunked upload. Returns an upload id and the chunk size to "
+            "send. Use this for large files: no single request carries the whole "
+            "file, so size is bounded by disk rather than by the request limit."
+        ),
+    ),
+)
+class UploadSessionViewSet(
+    mixins.CreateModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
+    """
+    Chunked uploads.
+
+        POST /api/uploads/                     start, returns uuid + chunk_size
+        PUT  /api/uploads/{uuid}/chunk/        raw bytes, X-Chunk-Offset header
+        POST /api/uploads/{uuid}/complete/     assemble and store
+        POST /api/uploads/{uuid}/abort/        discard what was received
+        GET  /api/uploads/{uuid}/              how many bytes are stored, to resume
+    """
+
+    serializer_class = serializers.UploadSessionSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = "uuid"
+    queryset = models.UploadSession.objects.all()
+
+    def create(self, request, *args, **kwargs):
+        payload = serializers.UploadInitSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        session = models.UploadSession.objects.create(
+            filename=payload.validated_data["filename"],
+            mime_type=payload.validated_data.get("mime_type", ""),
+            declared_size=payload.validated_data.get("size_bytes", 0),
+        )
+        return Response(
+            self.get_serializer(session).data, status=status.HTTP_201_CREATED
+        )
+
+    @extend_schema(
+        request=OpenApiTypes.BINARY,
+        responses=serializers.UploadSessionSerializer,
+        parameters=[
+            OpenApiParameter(
+                name="X-Chunk-Offset", type=int, location=OpenApiParameter.HEADER,
+                description="Byte offset this chunk starts at. Must equal `received`.",
+            )
+        ],
+        description="Append one chunk of the file. Send chunks in order.",
+    )
+    @action(detail=True, methods=["put"], parser_classes=[FileUploadParser])
+    def chunk(self, request, uuid=None):
+        session = self.get_object()
+        if session.state != models.UploadState.OPEN:
+            raise ValidationError("This upload is already finished.")
+
+        data = request.data.get("file") if request.FILES else None
+        raw = data.read() if data is not None else request.body
+        if not raw:
+            raise ValidationError("The chunk was empty.")
+
+        offset = request.headers.get("X-Chunk-Offset")
+        try:
+            session.append(raw, offset=offset)
+        except ValueError as exc:
+            raise ValidationError(str(exc))
+        return Response(self.get_serializer(session).data)
+
+    @extend_schema(
+        request=None,
+        responses=serializers.AttachmentSerializer,
+        description=(
+            "Assemble the chunks into a stored file. If a file with the same "
+            "SHA-256 already exists, that attachment is returned instead of a "
+            "duplicate being written."
+        ),
+    )
+    @action(detail=True, methods=["post"])
+    def complete(self, request, uuid=None):
+        session = self.get_object()
+        try:
+            attachment = session.complete()
+        except ValueError as exc:
+            raise ValidationError(str(exc))
+        return Response(
+            serializers.AttachmentSerializer(attachment, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(request=None, responses={200: None}, description="Discard an upload in progress.")
+    @action(detail=True, methods=["post"])
+    def abort(self, request, uuid=None):
+        session = self.get_object()
+        session.abort()
+        return Response(self.get_serializer(session).data)
+
+
+# ---------------------------------------------------------------------
+# Guardians and attendance
+# ---------------------------------------------------------------------
+class GuardianLinkViewSet(AuditedModelViewSet):
+    """Which students a guardian account may see."""
+
+    serializer_class = serializers.GuardianLinkSerializer
+    filterset_fields = ["user", "student", "relationship", "is_primary"]
+    search_fields = ["student__first_name", "student__last_name", "user__username"]
+
+
+class AttendanceSessionViewSet(AuditedModelViewSet):
+    """
+    A register: one grade, one date, one period. Leave `syllabus` empty for
+    a whole-day register, or set it to take attendance for one lesson.
+    """
+
+    serializer_class = serializers.AttendanceSessionSerializer
+    filterset_fields = ["grade", "academic_year", "date", "period", "syllabus", "is_finalised"]
+    ordering_fields = ["date", "period"]
+
+    @extend_schema(
+        request=serializers.AttendanceMarkSerializer,
+        responses=serializers.AttendanceRecordSerializer(many=True),
+        description=(
+            "Mark the whole register in one call. Any enrolment not named is "
+            "recorded as present, so a teacher only sends the exceptions."
+        ),
+    )
+    @action(detail=True, methods=["post"])
+    def mark(self, request, pk=None):
+        session = self.get_object()
+        payload = serializers.AttendanceMarkSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        marks = {entry["enrolment"]: entry for entry in payload.validated_data["records"]}
+        default = payload.validated_data["default_status"]
+
+        enrolments = models.Enrolment.objects.filter(
+            grade=session.grade, academic_year=session.academic_year
+        )
+        written = []
+        for enrolment in enrolments:
+            entry = marks.get(enrolment.id, {})
+            record = models.AttendanceRecord.objects.filter(
+                session=session, enrolment=enrolment
+            ).first()
+            values = {
+                "status": entry.get("status", default),
+                "minutes_late": entry.get("minutes_late"),
+                "note": entry.get("note", ""),
+            }
+            if record:
+                for field, value in values.items():
+                    setattr(record, field, value)
+                record.save()
+            else:
+                record = models.AttendanceRecord.objects.create(
+                    session=session, enrolment=enrolment, **values
+                )
+            written.append(record)
+
+        return Response(serializers.AttendanceRecordSerializer(written, many=True).data)
+
+    @extend_schema(
+        responses=serializers.AttendanceRecordSerializer(many=True),
+        description="The marks in this register.",
+    )
+    @action(detail=True, methods=["get"])
+    def records(self, request, pk=None):
+        qs = models.AttendanceRecord.objects.filter(session=self.get_object())
+        return Response(serializers.AttendanceRecordSerializer(qs, many=True).data)
+
+
+class AttendanceRecordViewSet(AuditedModelViewSet):
+    """One student's mark in one register."""
+
+    serializer_class = serializers.AttendanceRecordSerializer
+    filterset_fields = ["session", "enrolment", "status"]
+    ordering_fields = ["session__date"]

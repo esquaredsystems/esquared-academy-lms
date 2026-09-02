@@ -1,0 +1,56 @@
+{% extends "admin/change_list.html" %}
+
+{# Adds a "?" beside the add button that explains the entity. The text is
+   in app/help.py; this only renders it. #}
+
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if entity_help %}
+    <li>
+      <a href="#" class="helplink" id="entity-help-toggle" role="button"
+         aria-expanded="false" aria-controls="entity-help"
+         title="What is {{ opts.verbose_name }}?">?</a>
+    </li>
+  {% endif %}
+{% endblock %}
+
+{% block result_list %}
+  {% if entity_help %}
+    <section class="entity-help" id="entity-help" hidden aria-labelledby="entity-help-title">
+      <h2 id="entity-help-title">{{ opts.verbose_name|capfirst }}</h2>
+      <p class="entity-help-summary">{{ entity_help.summary }}</p>
+      <dl>
+        <dt>In the system</dt>
+        <dd>{{ entity_help.role }}</dd>
+        <dt>At Esquared</dt>
+        <dd>{{ entity_help.context }}</dd>
+      </dl>
+      {% if entity_help.fields %}
+        <h3>Key fields</h3>
+        <dl class="entity-help-fields">
+          {% for name, meaning in entity_help.fields %}
+            <dt><code>{{ name }}</code></dt>
+            <dd>{{ meaning }}</dd>
+          {% endfor %}
+        </dl>
+        <p class="entity-help-note">
+          The audit fields — uuid, created by, changed by, voided — work the same
+          on every record and are explained in the Audit section of the form.
+        </p>
+      {% endif %}
+    </section>
+    <script>
+      (function () {
+        var toggle = document.getElementById('entity-help-toggle');
+        var panel = document.getElementById('entity-help');
+        if (!toggle || !panel) { return; }
+        toggle.addEventListener('click', function (event) {
+          event.preventDefault();
+          panel.hidden = !panel.hidden;
+          toggle.setAttribute('aria-expanded', String(!panel.hidden));
+        });
+      })();
+    </script>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

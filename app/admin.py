@@ -1,21 +1,30 @@
 """
 Django admin.
-
-Voided rows stay visible here — the admin is the audit surface — but they
-are filtered out by default and marked in the list. Deleting is replaced
-by a "void" action, so nothing leaves the database through the admin.
 """
 
+from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
+from django.contrib.contenttypes.admin import GenericTabularInline
+from django.template.response import TemplateResponse
+from django.urls import path
 from django.utils import timezone
+from django.utils.html import format_html
 
+from . import entity_help as help_text
+from . import files as app_files
 from . import models
 
+# Everything the audit block carries, in the order it is shown.
 AUDIT_FIELDS = (
-    "created_by", "date_created", "changed_by", "date_changed",
-    "voided", "voided_by", "date_voided", "void_reason",
+    "voided", "void_reason", "date_voided", "voided_by",
+    "uuid", "created_by", "date_created", "changed_by", "date_changed",
 )
+
+# Voiding is the one audit decision a person makes; the rest stamps itself
+# and is shown read-only.
+AUDIT_EDITABLE = ("voided", "void_reason")
+AUDIT_READONLY = tuple(f for f in AUDIT_FIELDS if f not in AUDIT_EDITABLE)
 
 
 class VoidedFilter(admin.SimpleListFilter):
@@ -37,10 +46,41 @@ class VoidedFilter(admin.SimpleListFilter):
 class AuditAdmin(admin.ModelAdmin):
     """Shared behaviour for every audited model."""
 
-    readonly_fields = ("date_created", "date_changed", "date_voided", "voided_by")
+    readonly_fields = AUDIT_READONLY
     list_filter = (VoidedFilter,)
     actions = ("void_selected",)
     save_on_top = True
+    change_list_template = "admin/academy_change_list.html"
+
+    def changelist_view(self, request, extra_context=None):
+        """Hand the template this entity's help text for the "?" button."""
+        extra_context = {
+            **(extra_context or {}),
+            "entity_help": help_text.help_for(self.model),
+        }
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def get_fieldsets(self, request, obj=None):
+        """
+        Main fields first, the audit block last in its own collapsed
+        section — on every model, without each ModelAdmin repeating it.
+        """
+        fieldsets = super().get_fieldsets(request, obj)
+        audit_present, cleaned = [], []
+        for name, opts in fieldsets:
+            fields = []
+            for field in opts.get("fields", ()):
+                target = audit_present if field in AUDIT_FIELDS else fields
+                target.append(field)
+            if fields:
+                cleaned.append((name, {**opts, "fields": fields}))
+        if not audit_present:
+            return tuple(cleaned)
+        ordered = [f for f in AUDIT_FIELDS if f in audit_present]
+        return tuple(cleaned) + (
+            ("Audit", {"fields": ordered, "classes": ("collapse",),
+                       "description": "Stamped automatically. Only voiding is set by hand."}),
+        )
 
     def get_queryset(self, request):
         model = self.model
@@ -73,15 +113,25 @@ class AuditAdmin(admin.ModelAdmin):
         return not obj.voided
 
 
+class AttachmentLinkInline(GenericTabularInline):
+    """Files attached to whatever row is being edited."""
+
+    model = models.AttachmentLink
+    extra = 0
+    fields = ("attachment", "role", "sort_order", "voided")
+    raw_id_fields = ("attachment",)
+
+
 @admin.register(models.AppUser)
 class AppUserAdmin(UserAdmin, AuditAdmin):
     list_display = ("username", "first_name", "last_name", "email", "suspended", "is_staff")
     list_filter = UserAdmin.list_filter + ("suspended", VoidedFilter)
     fieldsets = UserAdmin.fieldsets + (
         ("Academy", {"fields": ("id_number", "suspended")}),
-        ("Audit", {"fields": ("voided", "void_reason"), "classes": ("collapse",)}),
+        ("Audit", {"fields": AUDIT_FIELDS, "classes": ("collapse",),
+                   "description": "Stamped automatically. Only voiding is set by hand."}),
     )
-    readonly_fields = ("date_voided", "voided_by")
+    readonly_fields = AUDIT_READONLY
 
 
 @admin.register(models.Grade)
@@ -206,7 +256,7 @@ class QuestionAdmin(AuditAdmin):
     list_filter = ("question_type", "topic__subject", "difficulty", "visible", VoidedFilter)
     search_fields = ("name", "question_text", "group", "id_number")
     raw_id_fields = ("topic", "default_prompt_version")
-    inlines = (BinaryConfigInline, NumericConfigInline)
+    inlines = (BinaryConfigInline, NumericConfigInline, AttachmentLinkInline)
 
 
 @admin.register(models.BinaryConfig)
@@ -248,7 +298,7 @@ class PaperVersionAdmin(AuditAdmin):
         base = super().get_readonly_fields(request, obj)
         if obj and obj.is_locked:
             return base + tuple(
-                f.name for f in obj._meta.fields if f.name not in {"voided", "void_reason"}
+                f.name for f in obj._meta.fields if f.name not in AUDIT_EDITABLE
             )
         return base
 
@@ -337,7 +387,7 @@ class EvaluationInline(admin.TabularInline):
 class AnswerAdmin(AuditAdmin):
     list_display = ("attempt", "paper_item", "date_answered", "live")
     raw_id_fields = ("attempt", "paper_item")
-    inlines = (EvaluationInline,)
+    inlines = (EvaluationInline, AttachmentLinkInline)
 
 
 @admin.register(models.Evaluation)
@@ -377,6 +427,131 @@ class PurgeRunAdmin(admin.ModelAdmin):
         return False
 
 
-admin.site.site_header = "E Squared Academy"
-admin.site.site_title = "E Squared Academy"
+admin.site.site_header = "Esquared Academy"
+admin.site.site_title = "Esquared Academy"
 admin.site.index_title = "Assessment platform"
+
+
+# ---------------------------------------------------------------------
+# Attachments
+# ---------------------------------------------------------------------
+@admin.register(models.Attachment)
+class AttachmentAdmin(AuditAdmin):
+    list_display = ("preview", "original_filename", "kind", "size_display", "mime_type",
+                    "date_created", "live")
+    list_filter = ("kind", VoidedFilter)
+    search_fields = ("original_filename", "title", "caption", "checksum")
+    readonly_fields = AUDIT_READONLY + (
+        "preview_large", "original_filename", "kind", "mime_type",
+        "size_display", "checksum", "file",
+    )
+    change_list_template = "admin/app/attachment/change_list.html"
+
+    def get_urls(self):
+        return [
+            path(
+                "upload/",
+                self.admin_site.admin_view(self.upload_view),
+                name="app_attachment_upload",
+            ),
+        ] + super().get_urls()
+
+    def upload_view(self, request):
+        """Drag-and-drop uploader. Sends files in chunks through /api/uploads/."""
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Upload files",
+            "opts": self.model._meta,
+            "chunk_size": settings.UPLOAD_CHUNK_SIZE,
+            "chunk_size_display": app_files.human_size(settings.UPLOAD_CHUNK_SIZE),
+        }
+        return TemplateResponse(request, "admin/app/attachment/upload.html", context)
+
+    @admin.display(description="")
+    def preview(self, obj):
+        if obj.kind == app_files.FileKind.PICTURE and obj.file:
+            return format_html(
+                '<img src="{}" style="height:36px;border-radius:3px" alt="">', obj.file.url
+            )
+        icons = {"text": "📄", "audio": "🎵", "video": "🎬", "other": "📦"}
+        return icons.get(obj.kind, "📦")
+
+    @admin.display(description="Preview")
+    def preview_large(self, obj):
+        if not obj.file:
+            return "—"
+        if obj.kind == app_files.FileKind.PICTURE:
+            return format_html('<img src="{}" style="max-width:420px" alt="">', obj.file.url)
+        if obj.kind == app_files.FileKind.VIDEO:
+            return format_html('<video src="{}" controls style="max-width:420px"></video>', obj.file.url)
+        if obj.kind == app_files.FileKind.AUDIO:
+            return format_html('<audio src="{}" controls></audio>', obj.file.url)
+        return format_html('<a href="{}" target="_blank" rel="noopener">Download</a>', obj.file.url)
+
+    @admin.display(description="Size", ordering="size_bytes")
+    def size_display(self, obj):
+        return obj.size_display
+
+
+@admin.register(models.AttachmentLink)
+class AttachmentLinkAdmin(AuditAdmin):
+    list_display = ("attachment", "content_type", "object_id", "role", "sort_order", "live")
+    list_filter = ("role", "content_type", VoidedFilter)
+    raw_id_fields = ("attachment",)
+
+
+@admin.register(models.UploadSession)
+class UploadSessionAdmin(AuditAdmin):
+    list_display = ("filename", "state", "received", "declared_size", "attachment", "date_created")
+    list_filter = ("state", VoidedFilter)
+    readonly_fields = AUDIT_READONLY + ("filename", "mime_type", "declared_size", "received", "attachment")
+
+    def has_add_permission(self, request):
+        return False
+
+
+# ---------------------------------------------------------------------
+# Guardians and attendance
+# ---------------------------------------------------------------------
+@admin.register(models.GuardianLink)
+class GuardianLinkAdmin(AuditAdmin):
+    list_display = ("student", "user", "relationship", "is_primary", "can_view_marks", "live")
+    list_filter = ("relationship", "is_primary", VoidedFilter)
+    search_fields = ("student__first_name", "student__last_name", "user__username", "user__email")
+    raw_id_fields = ("user", "student")
+
+
+class AttendanceRecordInline(admin.TabularInline):
+    model = models.AttendanceRecord
+    extra = 0
+    fields = ("enrolment", "status", "minutes_late", "note", "voided")
+    raw_id_fields = ("enrolment",)
+
+
+@admin.register(models.AttendanceSession)
+class AttendanceSessionAdmin(AuditAdmin):
+    list_display = ("date", "grade", "period", "syllabus", "academic_year",
+                    "marked", "is_finalised", "live")
+    list_filter = ("grade", "academic_year", "period", "is_finalised", VoidedFilter)
+    date_hierarchy = "date"
+    raw_id_fields = ("syllabus",)
+    inlines = (AttendanceRecordInline,)
+
+    @admin.display(description="Marked")
+    def marked(self, obj):
+        counts = obj.summary
+        if not counts:
+            return "—"
+        return ", ".join(f"{status}: {count}" for status, count in sorted(counts.items()))
+
+
+@admin.register(models.AttendanceRecord)
+class AttendanceRecordAdmin(AuditAdmin):
+    list_display = ("session", "student_name", "status", "minutes_late", "live")
+    list_filter = ("status", "session__grade", "session__academic_year", VoidedFilter)
+    search_fields = ("enrolment__student__first_name", "enrolment__student__last_name")
+    raw_id_fields = ("session", "enrolment")
+
+    @admin.display(description="Student", ordering="enrolment__student__last_name")
+    def student_name(self, obj):
+        return obj.enrolment.student

@@ -1,0 +1,9 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{# Loaded after JET's own stylesheets, so anything in academy-admin.css wins.
+   Use it for brand colours and small tweaks; do not fork JET's templates. #}
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'css/academy-admin.css' %}">
+{% endblock %}

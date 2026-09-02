@@ -11,27 +11,30 @@ the API either — see `VoidSerializer` and the `void` action on the
 viewsets.
 """
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from . import models
 
+# The audit block is self-controlled: the API may never write these.
 AUDIT_READ_ONLY = (
-    "date_created",
-    "date_changed",
-    "voided",
-    "date_voided",
-    "void_reason",
+    "uuid",
     "created_by",
+    "date_created",
     "changed_by",
+    "date_changed",
     "voided_by",
+    "date_voided",
 )
+
+# The two exceptions: voiding is a decision a person makes, and it needs a
+# reason. Everything else about the audit block stamps itself.
+AUDIT_WRITABLE = ("voided", "void_reason")
 
 
 def build_serializer(model, name=None, depth=0):
     """Create a ModelSerializer class for `model` with audit fields locked."""
-    read_only = tuple(
-        f for f in AUDIT_READ_ONLY if hasattr(model, f) or f.endswith("_by")
-    )
+    read_only = AUDIT_READ_ONLY
 
     meta = type(
         "Meta",
@@ -50,11 +53,11 @@ class AppUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.AppUser
         fields = (
-            "id", "username", "first_name", "last_name", "email", "id_number",
+            "id", "uuid", "username", "first_name", "last_name", "email", "id_number",
             "suspended", "is_active", "is_staff", "last_login", "date_joined",
-            "voided", "date_voided", "void_reason",
+            "voided", "void_reason", "date_voided",
         )
-        read_only_fields = ("last_login", "date_joined", "voided", "date_voided", "void_reason")
+        read_only_fields = ("uuid", "last_login", "date_joined", "date_voided")
 
 
 # --- people & placement ----------------------------------------------
@@ -124,3 +127,111 @@ class LockSerializer(serializers.Serializer):
         default=True,
         help_text="Locking freezes the version and pins each text item's prompt version.",
     )
+
+
+# --- attachments ------------------------------------------------------
+class AttachmentSerializer(serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+    size_display = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = models.Attachment
+        fields = (
+            "id", "uuid", "url", "file", "original_filename", "kind", "mime_type",
+            "size_bytes", "size_display", "checksum", "title", "caption",
+            "width", "height", "duration_seconds",
+            "voided", "void_reason", "date_created", "created_by",
+        )
+        read_only_fields = (
+            "uuid", "file", "original_filename", "kind", "mime_type", "size_bytes",
+            "checksum", "date_created", "created_by",
+        )
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_url(self, obj):
+        if not obj.file:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(obj.file.url) if request else obj.file.url
+
+
+class AttachmentLinkSerializer(serializers.ModelSerializer):
+    attachment_detail = AttachmentSerializer(source="attachment", read_only=True)
+    content_type_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.AttachmentLink
+        fields = (
+            "id", "uuid", "attachment", "attachment_detail", "content_type",
+            "content_type_name", "object_id", "role", "sort_order",
+            "voided", "void_reason",
+        )
+        read_only_fields = ("uuid",)
+
+    @extend_schema_field(serializers.CharField())
+    def get_content_type_name(self, obj):
+        return f"{obj.content_type.app_label}.{obj.content_type.model}"
+
+
+class UploadInitSerializer(serializers.Serializer):
+    """Starts a chunked upload."""
+
+    filename = serializers.CharField(max_length=255)
+    mime_type = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    size_bytes = serializers.IntegerField(min_value=0, required=False, default=0)
+
+
+class UploadSessionSerializer(serializers.ModelSerializer):
+    attachment_detail = AttachmentSerializer(source="attachment", read_only=True)
+    chunk_size = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.UploadSession
+        fields = (
+            "uuid", "filename", "mime_type", "declared_size", "received",
+            "state", "chunk_size", "attachment", "attachment_detail",
+        )
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_chunk_size(self, obj):
+        from django.conf import settings
+
+        return settings.UPLOAD_CHUNK_SIZE
+
+
+# --- guardians and attendance ----------------------------------------
+GuardianLinkSerializer = build_serializer(models.GuardianLink)
+AttendanceSessionSerializer = build_serializer(models.AttendanceSession)
+
+
+class AttendanceRecordSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.AttendanceRecord
+        fields = "__all__"
+        read_only_fields = AUDIT_READ_ONLY
+
+    @extend_schema_field(serializers.CharField())
+    def get_student_name(self, obj):
+        student = obj.enrolment.student
+        return f"{student.first_name} {student.last_name}"
+
+
+class AttendanceEntrySerializer(serializers.Serializer):
+    enrolment = serializers.IntegerField()
+    status = serializers.ChoiceField(choices=models.AttendanceStatus.choices)
+    minutes_late = serializers.IntegerField(required=False, allow_null=True)
+    note = serializers.CharField(required=False, allow_blank=True, max_length=255)
+
+
+class AttendanceMarkSerializer(serializers.Serializer):
+    """Mark a whole register: send the exceptions, not the whole class."""
+
+    default_status = serializers.ChoiceField(
+        choices=models.AttendanceStatus.choices,
+        default=models.AttendanceStatus.PRESENT,
+        help_text="Applied to every enrolment not named in `records`.",
+    )
+    records = AttendanceEntrySerializer(many=True, required=False, default=list)

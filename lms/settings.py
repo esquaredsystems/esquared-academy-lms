@@ -60,6 +60,10 @@ ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 # Application definition
 
 INSTALLED_APPS = [
+    # Django JET Reboot skins the admin. Both entries must precede
+    # django.contrib.admin so their templates win.
+    "jet.dashboard",
+    "jet",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -83,6 +87,9 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Publishes request.user so the audit block can stamp itself.
+    # Must come after AuthenticationMiddleware.
+    "app.audit.CurrentUserMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -92,7 +99,7 @@ ROOT_URLCONF = "lms.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -150,6 +157,69 @@ if RUNNING_TESTS and not env_bool("DJANGO_TEST_ON_MYSQL"):
     }
 
 
+# Password validation
+# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+    },
+]
+
+
+# Internationalization
+# https://docs.djangoproject.com/en/5.2/topics/i18n/
+
+LANGUAGE_CODE = "en-us"
+
+TIME_ZONE = env("DJANGO_TIME_ZONE", "Asia/Karachi")
+
+USE_I18N = True
+
+USE_TZ = True
+
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/5.2/howto/static-files/
+
+STATIC_URL = "static/"
+
+STATICFILES_DIRS = [BASE_DIR / "static"]
+
+# Uploaded files. One root, a flat folder per kind underneath it —
+# text/ audio/ video/ picture/ other/ — plus _incoming/ for chunks of
+# uploads still in progress. See app/files.py.
+MEDIA_ROOT = Path(env("MEDIA_ROOT") or (BASE_DIR / "media"))
+
+MEDIA_URL = env("MEDIA_URL") or "/media/"
+
+# Large uploads arrive in chunks (see UploadSession), so no single request
+# needs to be big. These bound what one request may hold: anything over
+# 5 MB is streamed to a temporary file rather than buffered in memory.
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(env("FILE_UPLOAD_MAX_MEMORY_SIZE", str(5 * 1024 * 1024)))
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(env("DATA_UPLOAD_MAX_MEMORY_SIZE", str(20 * 1024 * 1024)))
+
+# What the browser-side uploader slices files into. Bigger is faster on a
+# good connection; smaller resumes more cheaply on a bad one.
+UPLOAD_CHUNK_SIZE = int(env("UPLOAD_CHUNK_SIZE", str(5 * 1024 * 1024)))
+
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Default primary key field type
+# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
 # ---------------------------------------------------------------------
 # REST framework
 # ---------------------------------------------------------------------
@@ -164,16 +234,17 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticatedOrReadOnly",
+        "rest_framework.permissions.IsAuthenticated",
+        "app.access.RolePermission",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "E Squared Academy API",
+    "TITLE": "Esquared Academy API",
     "DESCRIPTION": (
-        "Assessment platform for E Squared Academy.\n\n"
+        "Assessment platform for Esquared Academy.\n\n"
         "Grades are classes. Question papers are versioned and immutable once "
         "locked; a locked version pins the prompt version each text question "
         "is marked by. Nothing is deleted \u2014 rows are voided, and purging "
@@ -195,6 +266,9 @@ SPECTACULAR_SETTINGS = {
         "MarkingMethodEnum": "app.models.MarkingMethod.choices",
         "AttemptStateEnum": "app.models.AttemptState.choices",
         "EvalMethodEnum": "app.models.EvalMethod.choices",
+        "FileKindEnum": "app.files.FileKind.choices",
+        "AttendanceStatusEnum": "app.models.AttendanceStatus.choices",
+        "UploadStateEnum": "app.models.UploadState.choices",
     },
     "TAGS": [
         {"name": "grades", "description": "Grades, which are also the classes."},
@@ -205,3 +279,85 @@ SPECTACULAR_SETTINGS = {
         {"name": "attempts", "description": "Sittings, answers and marking."},
     ],
 }
+
+
+# ---------------------------------------------------------------------
+# Admin theme — Django JET Reboot
+#
+# The original django-jet was abandoned in 2018; this is the maintained
+# fork (last release 1.3.10, September 2024), which is what supports
+# Django 4 and 5. Verified against Django 5.2 here: the index, change
+# lists, change forms, inlines and filters all render.
+# ---------------------------------------------------------------------
+# The skin everyone gets until they pick their own.
+JET_DEFAULT_THEME = env("JET_THEME", "light-violet")
+
+# Listing themes here puts a colour picker in the admin sidebar; each user's
+# choice is stored against their account and overrides the default above.
+# Set JET_SHOW_THEME_PICKER=false in .env to take the picker away and hold
+# everyone to JET_THEME.
+JET_THEMES = [
+    {"theme": "default", "color": "#47bac1", "title": "Default"},
+    {"theme": "green", "color": "#44b78b", "title": "Green"},
+    {"theme": "light-green", "color": "#2faa60", "title": "Light green"},
+    {"theme": "light-violet", "color": "#a464c4", "title": "Light violet"},
+    {"theme": "light-blue", "color": "#5EADDE", "title": "Light blue"},
+    {"theme": "light-gray", "color": "#222", "title": "Light gray"},
+] if env_bool("JET_SHOW_THEME_PICKER", True) else []
+JET_SIDE_MENU_COMPACT = True
+JET_CHANGE_FORM_SIBLING_LINKS = True
+
+# The order the left menu is built in, grouped the way the ERD is:
+# placement, curriculum, question bank, papers, marking, retention.
+JET_SIDE_MENU_ITEMS = [
+    {"label": "People & placement", "items": [
+        {"name": "app.grade"},
+        {"name": "app.student"},
+        {"name": "app.teacher"},
+        {"name": "app.enrolment"},
+        {"name": "app.studentcohort"},
+        {"name": "app.cohortmembership"},
+    ]},
+    {"label": "Curriculum", "items": [
+        {"name": "app.subject"},
+        {"name": "app.topic"},
+        {"name": "app.syllabus"},
+        {"name": "app.syllabustopic"},
+        {"name": "app.studentsubject"},
+        {"name": "app.teachingassignment"},
+    ]},
+    {"label": "Question bank", "items": [
+        {"name": "app.question"},
+        {"name": "app.binaryconfig"},
+        {"name": "app.numericconfig"},
+        {"name": "app.evaluationprompt"},
+        {"name": "app.promptversion"},
+    ]},
+    {"label": "Papers", "items": [
+        {"name": "app.questionpaper"},
+        {"name": "app.paperversion"},
+        {"name": "app.paperitem"},
+        {"name": "app.paperassignment"},
+    ]},
+    {"label": "Attendance", "items": [
+        {"name": "app.attendancesession"},
+        {"name": "app.attendancerecord"},
+    ]},
+    {"label": "Files", "items": [
+        {"name": "app.attachment"},
+        {"name": "app.attachmentlink"},
+        {"name": "app.uploadsession"},
+    ]},
+    {"label": "Marking", "items": [
+        {"name": "app.attempt"},
+        {"name": "app.answer"},
+        {"name": "app.evaluation"},
+    ]},
+    {"label": "Administration", "items": [
+        {"name": "app.appuser"},
+        {"name": "auth.group"},
+        {"name": "app.guardianlink"},
+        {"name": "app.retentionpolicy"},
+        {"name": "app.purgerun"},
+    ]},
+]

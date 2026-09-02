@@ -1,0 +1,251 @@
+:root {
+    --academy-ink: #1f2a33;
+    --academy-ink-2: #41505d;
+    --academy-brand: #0e6555;
+    --academy-line: #b7c1c9;
+    --academy-error: #b3261e;
+    --academy-warning: #8a5711;
+}
+
+/* --- primary text ------------------------------------------------- */
+body,
+#content,
+.content,
+.dashboard,
+.module,
+.module p,
+.results,
+.results td,
+.results th,
+.form-row,
+.form-row p,
+.aligned label,
+.inline-group,
+.inline-related h3,
+.breadcrumbs,
+.paginator,
+.object-tools a,
+.change-list .toplinks a {
+    color: var(--academy-ink) !important;
+}
+
+/* --- secondary text ----------------------------------------------- */
+.help,
+.helptext,
+small,
+.quiet,
+.datetimeshortcuts,
+.paginator .this-page,
+.results th a,
+.sidebar .content-related h3 {
+    color: var(--academy-ink-2) !important;
+}
+
+/* --- links -------------------------------------------------------- */
+#content a:link,
+#content a:visited,
+.results a:link,
+.results a:visited,
+.breadcrumbs a,
+.paginator a:link,
+.paginator a:visited {
+    color: var(--academy-brand) !important;
+}
+
+#content a:hover,
+.results a:hover {
+    color: #0a4a3e !important;
+    text-decoration: underline;
+}
+
+/* --- edges: 1.72:1 borders are effectively invisible -------------- */
+.results,
+.results td,
+.results th,
+.module,
+.form-row,
+fieldset.module,
+.inline-related,
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="url"],
+input[type="number"],
+textarea,
+select {
+    border-color: var(--academy-line) !important;
+}
+
+.results tbody tr:nth-child(odd) {
+    background: #f4f6f8 !important;   /* zebra striping you can actually see */
+}
+
+/* --- form fields --------------------------------------------------- */
+input, textarea, select {
+    color: var(--academy-ink) !important;
+}
+
+::placeholder {
+    color: #5d6b78 !important;        /* 5.2:1, still clearly a placeholder */
+    opacity: 1;
+}
+
+/* --- state colours -------------------------------------------------- */
+.errornote,
+.errorlist li,
+ul.errorlist li {
+    color: #fff !important;
+    background: var(--academy-error) !important;
+}
+
+.warning, .messagelist .warning {
+    color: var(--academy-warning) !important;
+}
+
+/* --- buttons -------------------------------------------------------- */
+.button,
+input[type="submit"],
+.submit-row input[type="submit"],
+.object-tools a.addlink {
+    background: var(--academy-brand) !important;
+    border-color: var(--academy-brand) !important;
+    color: #fff !important;           /* 6.97:1 */
+}
+
+.button:hover,
+input[type="submit"]:hover,
+.submit-row input[type="submit"]:hover {
+    background: #0a4a3e !important;
+}
+
+/* --- focus: JET's outline is nearly invisible on a light ground ---- */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid var(--academy-brand) !important;
+    outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------
+ * Object tools: the add button and the entity help beside it.
+ *
+ * JET renders "Add <model>" as text plus an icon-font plus sign, in a
+ * grey that fails contrast. Hide the words, keep the icon, and give it
+ * the brand colour so the control reads as a button rather than a label.
+ * The text stays in the DOM, so screen readers still announce it.
+ * ------------------------------------------------------------------ */
+.object-tools a.addlink {
+    font-size: 0 !important;              /* hides the words, keeps the icon */
+    padding: 0 12px !important;
+    background: var(--academy-brand) !important;
+    color: #fff !important;
+}
+
+.object-tools a.addlink::before {
+    font-size: 15px !important;
+    color: #fff !important;
+    margin: 0 !important;
+}
+
+.object-tools a.addlink:hover,
+.object-tools a.addlink:focus {
+    background: #0a4a3e !important;
+}
+
+/* The uploader keeps its label — it is not an obvious icon. */
+.object-tools a.uploadlink {
+    font-size: 12px !important;
+    padding: 0 14px !important;
+}
+.object-tools a.uploadlink::before { margin-right: 5px !important; }
+
+/* The "?" */
+.object-tools a.helplink {
+    font-size: 14px !important;
+    font-weight: 700;
+    width: 32px;
+    padding: 0 !important;
+    background: transparent !important;
+    color: var(--academy-brand) !important;
+    border: 1px solid var(--academy-line) !important;
+}
+.object-tools a.helplink:hover,
+.object-tools a.helplink:focus,
+.object-tools a.helplink[aria-expanded="true"] {
+    background: var(--academy-brand) !important;
+    border-color: var(--academy-brand) !important;
+    color: #fff !important;
+}
+
+/* The panel it opens */
+.entity-help {
+    background: #fff;
+    border: 1px solid var(--academy-line);
+    border-left: 3px solid var(--academy-brand);
+    border-radius: 5px;
+    padding: 18px 22px;
+    margin: 0 0 18px;
+    max-width: 70em;
+}
+.entity-help h2 {
+    margin: 0 0 6px;
+    font-size: 16px;
+    color: var(--academy-ink) !important;
+}
+.entity-help .entity-help-summary {
+    margin: 0 0 14px;
+    font-size: 15px;
+    color: var(--academy-ink) !important;
+}
+.entity-help dl { margin: 0; display: grid; grid-template-columns: 130px 1fr; gap: 8px 18px; }
+.entity-help dt {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--academy-ink-2) !important;
+    padding-top: 2px;
+}
+.entity-help dd { margin: 0; color: var(--academy-ink-2) !important; font-size: 14px; line-height: 1.55; }
+@media (max-width: 700px) {
+    .entity-help dl { grid-template-columns: 1fr; gap: 2px 0; }
+    .entity-help dd { margin-bottom: 10px; }
+}
+
+/* Key-fields list inside the entity help panel */
+.entity-help h3 {
+    margin: 20px 0 10px;
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--academy-ink-2) !important;
+}
+.entity-help dl.entity-help-fields {
+    grid-template-columns: 190px 1fr;
+    gap: 7px 18px;
+    border-top: 1px solid var(--academy-line);
+    padding-top: 12px;
+}
+.entity-help dl.entity-help-fields dt {
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 13px;
+    padding-top: 0;
+}
+.entity-help dl.entity-help-fields dt code {
+    background: #eef2f4;
+    color: var(--academy-ink) !important;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 12.5px;
+}
+.entity-help-note {
+    margin: 14px 0 0;
+    font-size: 13px;
+    color: var(--academy-ink-2) !important;
+    font-style: italic;
+}
+@media (max-width: 700px) {
+    .entity-help dl.entity-help-fields { grid-template-columns: 1fr; }
+}
