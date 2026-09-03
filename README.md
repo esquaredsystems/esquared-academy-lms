@@ -66,45 +66,47 @@ python manage.py seed_curriculum --dry-run
 
 Loads the Cambridge curriculum as taught in Pakistan: five grades (E1, E2 =
 Lower Secondary stages 7–8; S1–S3 = the O Level programme, S3 terminal), 18
-subjects, 156 topics and 48 syllabi for the year — 348 syllabus/topic links.
+subjects, 618 topics and 48 syllabi for the year — 348 syllabus/topic links.
 
-Topic titles are verbatim from the Cambridge syllabus or curriculum framework
-in force for the 2026 series; `app/seed_data.py` records the source document
-against every list, and each topic's `description` carries it too. A subject
-holds both its Lower Secondary strands (`LS-…`) and its O Level sections
-(`OL-…`), and the syllabus for a grade picks the right set.
+156 of those topics are top-level syllabus sections; the other 462 are
+sub-topics, seeded wherever Cambridge publishes a second level:
 
-The command is idempotent: it matches on natural keys, updates titles in
-place, and never deletes. A topic dropped from a later syllabus revision
-stays in the catalogue and simply leaves that year's syllabus.
+| Subject | Second level | Count |
+|---|---|---|
+| Mathematics D 4024 | numbered sub-topics | 68 |
+| Biology 5090 | numbered sub-topics | 52 |
+| Chemistry 5070 | numbered sub-topics | 49 |
+| Pakistan Studies 2059 | 16 Key Questions + 25 Paper 2 headings | 41 |
+| Economics 2281 | numbered sub-topics | 39 |
+| Accounting 7707 | numbered sub-topics | 27 |
+| History 2147 | focus points under the six Key Questions | 26 |
+| Physics 5054 | numbered sub-topics | 25 |
+| Business Studies 7115 | numbered sub-topics | 25 |
+| Computer Science 2210 | numbered sub-topics | 21 |
+| Geography 2217 | numbered sub-topics | 19 |
+| Global Perspectives 1129 (LS) | framework sub-strands | 18 |
+| English 0861 (LS) | framework sub-strands | 17 |
+| Science 0893 (LS) | framework sub-strands | 16 |
+| English 1123 | assessment objectives R1–R5, W1–W5 | 10 |
+| Mathematics 0862 (LS) | framework sub-strands | 9 |
 
-## Topics nest
+Four subjects stay flat, deliberately, and the note on each seed entry says
+why:
 
-A topic can sit under another: Programming holds Loops and Conditions,
-Rivers holds Erosion and Deposition. Questions can be written against any
-level, so one can target a whole syllabus section or a single idea inside it.
+- **Additional Mathematics 4037** prints no titled sub-topics — its second
+  level is full-sentence learning outcomes.
+- **Art & Design 6090** repeats two rubric headings under every area of study
+  rather than naming distinct content.
+- **Islamiyat 2058** publishes named sub-headings for only three of its eight
+  sections, and the research pass read those inconsistently. Scripture
+  references are not something to seed on a shaky reading.
+- **Urdu 3247** already sits at its published second level; below it are set
+  texts that change by series and are printed in Urdu script.
+- **Computing 0860 (LS)** publishes no sub-strands at all — objectives hang
+  straight off the five strands.
 
-`parent` is the only field you set. `depth` and `path` are maintained by
-`Topic.save()`, and `path` is what makes "everything under this topic" a
-single query rather than a recursive walk — moving a topic rewrites its
-descendants automatically.
-
-Four rules are enforced in `save()`, not just in the form, so scripts and the
-API cannot build a broken tree either: a topic cannot be its own parent, it
-cannot sit under one of its own descendants, its parent must belong to the
-same subject, and nesting stops at `Topic.MAX_DEPTH` (4).
-
-Only top-level topics are listed on a syllabus; their children come with them.
-The seed nests Geography 2217, the one O Level syllabus here that publishes
-numbered sub-topics — 3 themes with 19 sub-topics under them.
-
-```
-GET /api/topics/?root_only=true      the syllabus sections
-GET /api/topics/?parent=12           one level
-GET /api/topics/12/children/
-GET /api/topics/12/subtree/          everything below, in tree order
-GET /api/topics/12/ancestors/        the trail back to the root
-```
+Physics also numbers a third level (1.5.1, 4.5.1 …). Only the second level is
+seeded, matching every other subject.
 
 ## Files and attachments
 

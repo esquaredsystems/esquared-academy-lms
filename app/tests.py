@@ -330,8 +330,9 @@ class SeedCurriculumTests(TestCase):
         )
         self.assertTrue(models.Grade.objects.get(short_name="S3").is_terminal)
         self.assertEqual(models.Subject.objects.count(), 18)
-        # 156 syllabus sections, plus Geography's 19 published sub-topics
-        self.assertEqual(models.Topic.objects.count(), 175)
+        # 156 syllabus sections plus 462 published sub-topics.
+        self.assertEqual(models.Topic.objects.count(), 618)
+        self.assertEqual(models.Topic.objects.filter(parent__isnull=False).count(), 462)
         self.assertEqual(models.Topic.objects.filter(parent__isnull=True).count(), 156)
         self.assertEqual(models.Syllabus.objects.filter(academic_year=2026).count(), 48)
 
@@ -359,10 +360,16 @@ class SeedCurriculumTests(TestCase):
         maths = models.Subject.objects.get(short_name="MATH")
 
         self.assertEqual(
-            models.Topic.objects.filter(subject=maths, short_name__startswith="LS-").count(), 4
+            models.Topic.objects.filter(
+                subject=maths, short_name__startswith="LS-", parent__isnull=True
+            ).count(),
+            4,
         )
         self.assertEqual(
-            models.Topic.objects.filter(subject=maths, short_name__startswith="OL-").count(), 9
+            models.Topic.objects.filter(
+                subject=maths, short_name__startswith="OL-", parent__isnull=True
+            ).count(),
+            9,
         )
 
     def test_terminal_grade_is_the_only_one_with_electives(self):
@@ -988,6 +995,67 @@ class TopicHierarchyTests(Fixture):
         self.assertEqual(len(children.data), 1)
         self.assertEqual(children.data[0]["full_name"], "Loops")
         self.assertTrue(all(t["parent"] is None for t in roots.data["results"]))
+
+    def test_the_seeded_maths_syllabus_is_complete(self):
+        call_command("seed_curriculum", year=2026, stdout=StringIO())
+
+        maths = models.Subject.objects.get(short_name="MATH")
+        sections = models.Topic.objects.filter(
+            subject=maths, short_name__startswith="OL-", parent__isnull=True
+        ).order_by("sort_order")
+
+        self.assertEqual(
+            [s.full_name for s in sections],
+            ["Number", "Algebra and graphs", "Coordinate geometry", "Geometry",
+             "Mensuration", "Trigonometry", "Transformations and vectors",
+             "Probability", "Statistics"],
+        )
+        self.assertEqual(
+            [s.children.count() for s in sections], [18, 12, 7, 8, 5, 4, 4, 3, 7]
+        )
+        self.assertEqual(
+            models.Topic.objects.filter(
+                subject=maths, short_name__startswith="OL-", parent__isnull=False
+            ).count(),
+            68,
+        )
+
+    def test_maths_sub_topic_numbering_is_contiguous(self):
+        call_command("seed_curriculum", year=2026, stdout=StringIO())
+
+        maths = models.Subject.objects.get(short_name="MATH")
+        for section in models.Topic.objects.filter(
+            subject=maths, short_name__startswith="OL-", parent__isnull=True
+        ):
+            number = section.short_name.removeprefix("OL-")
+            expected = [
+                f"OL-{number}.{i}"
+                for i in range(1, section.children.count() + 1)
+            ]
+            actual = [c.short_name for c in section.children.order_by("sort_order")]
+
+            self.assertEqual(actual, expected, f"section {number}")
+
+    def test_english_carries_both_stages_nested(self):
+        call_command("seed_curriculum", year=2026, stdout=StringIO())
+
+        english = models.Subject.objects.get(short_name="ENG")
+
+        def section(short_name):
+            return models.Topic.objects.get(subject=english, short_name=short_name)
+
+        # O Level 1123 publishes no topic list; its assessment objectives are
+        # the named breakdown.
+        self.assertEqual(section("OL-1").children.count(), 5)   # AO1 Reading, R1-R5
+        self.assertEqual(section("OL-2").children.count(), 5)   # AO2 Writing, W1-W5
+        # Lower Secondary 0861 publishes sub-strands, by reporting code.
+        self.assertEqual(section("LS-1").children.count(), 6)
+        self.assertEqual(section("LS-2").children.count(), 6)
+        self.assertEqual(section("LS-3").children.count(), 5)
+        self.assertEqual(
+            section("LS-3").children.order_by("sort_order").first().full_name,
+            "Making yourself understood",
+        )
 
     def test_the_seeded_geography_topics_are_nested(self):
         call_command("seed_curriculum", year=2026, stdout=StringIO())
