@@ -1,0 +1,76 @@
+{% extends "admin/base_site.html" %}
+{% load academy %}
+
+{% block title %}Record marks · {{ block.super }}{% endblock %}
+
+{% block content %}
+<div id="content-main" class="tr-grid">
+  <p class="tr-lead">
+    {{ student }} — {{ syllabus.subject.full_name }},
+    {{ syllabus.grade.short_name }} {{ syllabus.academic_year }}.
+    A topic counts as passed at {{ pass_mark|floatformat:"-2" }}% or above;
+    the pass mark lives on the syllabus, so changing it there re-reads
+    every mark below without re-entering any of them.
+  </p>
+
+  <div class="tr-summary">
+    <span class="ac-bar"><i style="width:{{ progress.percent }}%"></i></span>
+    <b>{{ progress.percent }}%</b>
+    <span>{{ progress.passed }} passed of {{ progress.total }} topics ·
+      {{ progress.assessed }} assessed</span>
+    <a class="tr-back"
+       href="{% url 'admin:app_student_change' student.pk %}">back to the student</a>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    {% for group in groups %}
+      <fieldset class="module tr-section">
+        <h2>
+          {{ group.section.full_name|shorten }}
+          <span class="tr-count">{{ group.passed }} / {{ group.total }}</span>
+        </h2>
+        <table class="tr-table">
+          <thead>
+            <tr><th>Topic</th><th class="tr-score-head">Mark %</th><th>State</th></tr>
+          </thead>
+          <tbody>
+            {% for row in group.rows %}
+              <tr class="{% if row.passed %}is-passed{% elif row.assessed %}is-below{% endif %}">
+                <td title="{{ row.topic.full_name }}">{{ row.topic.full_name|shorten }}</td>
+                <td>
+                  <input type="number" name="score_{{ row.topic.pk }}"
+                         value="{{ row.score }}" min="0" max="100" step="0.5"
+                         class="tr-score" inputmode="decimal"
+                         aria-label="Mark for {{ row.topic.full_name }}">
+                </td>
+                <td class="tr-state">
+                  {% if row.passed %}
+                    <span class="ac-mark is-passed">&#10003;</span> passed
+                  {% elif row.assessed %}
+                    <span class="ac-mark is-below">&#8722;</span> below the mark
+                  {% else %}
+                    <span class="ac-mark is-studying">?</span> not assessed
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </fieldset>
+    {% empty %}
+      <p class="tr-empty">
+        This syllabus has no topics on it yet, so there is nothing to mark.
+        Add topics to the syllabus first.
+      </p>
+    {% endfor %}
+
+    {% if groups %}
+      <div class="submit-row">
+        <input type="submit" value="Save marks" class="default">
+      </div>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}

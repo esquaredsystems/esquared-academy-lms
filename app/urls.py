@@ -43,6 +43,7 @@ router.register("topics", views.TopicViewSet, basename="topic")
 router.register("syllabi", views.SyllabusViewSet, basename="syllabus")
 router.register("syllabus-topics", views.SyllabusTopicViewSet, basename="syllabustopic")
 router.register("student-subjects", views.StudentSubjectViewSet, basename="studentsubject")
+router.register("topic-results", views.TopicResultViewSet, basename="topicresult")
 router.register(
     "teaching-assignments", views.TeachingAssignmentViewSet, basename="teachingassignment"
 )

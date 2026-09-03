@@ -85,6 +85,7 @@ class TopicSerializer(serializers.ModelSerializer):
 SyllabusSerializer = build_serializer(models.Syllabus)
 SyllabusTopicSerializer = build_serializer(models.SyllabusTopic)
 StudentSubjectSerializer = build_serializer(models.StudentSubject)
+TopicResultSerializer = build_serializer(models.TopicResult)
 TeachingAssignmentSerializer = build_serializer(models.TeachingAssignment)
 
 # --- prompt library ---------------------------------------------------

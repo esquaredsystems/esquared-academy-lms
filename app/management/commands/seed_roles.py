@@ -27,7 +27,7 @@ READ = ("view",)
 CURRICULUM = ["grade", "subject", "topic", "syllabus", "syllabustopic"]
 QUESTIONS = ["question", "binaryconfig", "numericconfig", "evaluationprompt", "promptversion"]
 PAPERS = ["questionpaper", "paperversion", "paperitem", "paperassignment"]
-MARKING = ["attempt", "answer", "evaluation"]
+MARKING = ["attempt", "answer", "evaluation", "topicresult"]
 ATTENDANCE = ["attendancesession", "attendancerecord"]
 FILES = ["attachment", "attachmentlink", "uploadsession"]
 PEOPLE = ["student", "teacher", "enrolment", "studentsubject", "teachingassignment",
@@ -78,6 +78,7 @@ ROLE_PERMISSIONS = {
         "attempt": ("view", "add", "change"),   # sitting a paper writes rows
         "answer": ("view", "add", "change"),
         "evaluation": READ,
+        "topicresult": READ,
         "attendancerecord": READ,
         "attachment": READ,
         "attachmentlink": READ,
@@ -92,6 +93,7 @@ ROLE_PERMISSIONS = {
         "attempt": READ,
         "answer": READ,
         "evaluation": READ,
+        "topicresult": READ,
         "attendancerecord": READ,
         "attendancesession": READ,
         "guardianlink": READ,

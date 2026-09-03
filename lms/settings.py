@@ -353,6 +353,10 @@ JET_SIDE_MENU_ITEMS = [
         {"name": "app.answer"},
         {"name": "app.evaluation"},
     ]},
+    {"label": "Demo", "items": [
+        {"label": "Demo data", "url": {"type": "reverse", "name": "demo"},
+         "permissions": ["app.add_student"]},
+    ]},
     {"label": "Administration", "items": [
         {"name": "app.appuser"},
         {"name": "auth.group"},

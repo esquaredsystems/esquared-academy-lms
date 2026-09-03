@@ -1,0 +1,161 @@
+/*
+ * Student and teacher pages: the portrait, the Subjects tab and the
+ * Knowledge map tab. Colours come from the theme's variables where it
+ * defines them, with plain fallbacks so this file also stands alone.
+ */
+
+/* ---- portraits ---------------------------------------------------- */
+.ac-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  object-fit: cover;           /* square by validation; belt and braces */
+  background: var(--ac-line, #e6e9e4);
+  color: var(--ac-ink-3, #6c7c77);
+  font-weight: 600;
+  letter-spacing: .04em;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.ac-avatar-sm { width: 34px; height: 34px; font-size: 12px; }
+.ac-avatar-lg { width: 132px; height: 132px; font-size: 34px; }
+.ac-avatar.is-empty { border: 1px dashed var(--ac-line-strong, #b7c1c9); }
+
+.form-row.field-photo_preview label { display: none; }
+.form-row.field-photo_preview p.help { margin-top: 8px; max-width: 34ch; }
+
+/* ---- the two panel fieldsets --------------------------------------- */
+.form-row.field-subject_panel label,
+.form-row.field-knowledge_map_panel label { display: none; }
+.form-row.field-subject_panel > p,
+.form-row.field-knowledge_map_panel > p { margin: 0; }
+
+/* ---- Subjects tab --------------------------------------------------- */
+.sp-lead { font-size: 13px; color: var(--ac-ink-3, #645c50); margin: 0 0 16px; }
+.sp-year { margin-bottom: 26px; }
+.sp-year.is-voided { opacity: .55; }
+.sp-year-head {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding-bottom: 7px; border-bottom: 1px solid var(--ac-line, #d8ded9);
+}
+.sp-year-head b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.sp-grade { color: var(--ac-ink-2, #41505d); }
+.sp-tag {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 10px; border: 1px solid currentColor;
+}
+.sp-tag.is-current { color: #b07d18; }
+.sp-tag.is-done { color: #2f7d5b; }
+.sp-tag.is-voided { color: #b3261e; }
+.sp-link { margin-left: auto; font-size: 12px; }
+.sp-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.sp-table th {
+  text-align: left; font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ac-ink-3, #645c50);
+  padding: 8px 12px 6px;
+}
+.sp-table td { padding: 7px 12px; border-bottom: 1px solid var(--ac-line, #eceee9); }
+.sp-code { font-variant-numeric: tabular-nums; color: var(--ac-ink-3, #645c50); }
+.sp-empty { color: var(--ac-ink-3, #645c50); font-style: italic; }
+
+/* ---- Knowledge map tab ---------------------------------------------- */
+.skm-controls {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 18px;
+  margin: 0 0 14px;
+}
+.skm-legend { display: flex; gap: 16px; font-size: 13px; }
+.skm-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.skm-mark { font-style: normal; font-weight: 700; }
+.skm-mark.is-passed { color: #2f7d5b; }
+.skm-mark.is-studying { color: #b07d18; }
+.skm-mark.is-none { color: #a8a29a; }
+.skm-check { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.skm-actions { display: flex; gap: 8px; }
+.skm-meta {
+  margin-left: auto; font-size: 13px; font-variant-numeric: tabular-nums;
+  color: var(--ac-ink-2, #41505d);
+}
+
+.skm-canvas {
+  position: relative;
+  overflow: auto;                /* both scrolls live here */
+  max-height: 70vh; min-height: 380px;
+  border: 1px solid var(--ac-line, #d8ded9);
+  border-radius: 6px;
+  resize: vertical;
+  background:
+    radial-gradient(circle at 1px 1px, rgba(0,0,0,.07) 1px, transparent 0) 0 0 / 22px 22px,
+    var(--ac-card, #fff);
+}
+.skm-canvas svg { display: block; }
+.skm-status { padding: 56px 20px; text-align: center; color: var(--ac-ink-2, #41505d); }
+
+.skm-link { fill: none; stroke: var(--ac-line-strong, #b7c1c9); stroke-width: 1.5px; }
+.skm-node { cursor: pointer; }
+.skm-node circle { stroke: var(--ac-card, #fff); stroke-width: 2px; }
+.skm-node text {
+  font-size: 13px; fill: var(--ac-ink, #1f2a33);
+  paint-order: stroke; stroke: var(--ac-card, #fff);
+  stroke-width: 3px; stroke-linejoin: round;
+}
+.skm-node.is-student text, .skm-node.is-subject text { font-weight: 700; }
+.skm-node.is-student text { font-size: 15px; }
+.skm-node.is-not_taken text { fill: var(--ac-ink-3, #8a8a80); font-weight: 400; }
+.skm-node.is-not_taken.is-subject text { font-weight: 600; }
+.skm-node .skm-mark-glyph { font-size: 14px; font-weight: 700; }
+.skm-node.is-passed .skm-mark-glyph { fill: #2f7d5b; }
+.skm-node.is-studying .skm-mark-glyph { fill: #b07d18; }
+.skm-node.is-not_taken .skm-mark-glyph { fill: #a8a29a; }
+.skm-node.has-hidden circle { stroke: var(--ac-accent-text, #0e6555); stroke-dasharray: 2 2; }
+.skm-note {
+  font-size: 12px; color: var(--ac-ink-3, #645c50);
+  margin: 12px 2px 0; max-width: 80ch;
+}
+
+
+/* ---- progress bars, marks and the marking grid ---------------------- */
+.ac-bar {
+  display: inline-block; vertical-align: middle;
+  width: 92px; height: 7px; border-radius: 4px;
+  background: var(--ac-line, #e2e6e0); overflow: hidden;
+}
+.ac-bar i { display: block; height: 100%; background: #2f7d5b; }
+.ac-bar-note { color: var(--ac-ink-3, #645c50); font-size: 12px; }
+
+.ac-mark { font-weight: 700; font-style: normal; }
+.ac-mark.is-passed { color: #2f7d5b; }
+.ac-mark.is-studying { color: #b07d18; }
+.ac-mark.is-below { color: #b3261e; }
+
+.sp-progress { white-space: nowrap; }
+.sp-progress b { margin-left: 8px; font-variant-numeric: tabular-nums; }
+.sp-assessed { color: var(--ac-ink-3, #645c50); font-size: 12px; }
+
+.tr-lead { max-width: 78ch; color: var(--ac-ink-2, #41505d); }
+.tr-summary {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: 16px 0 22px; font-size: 14px;
+}
+.tr-summary b { font-size: 19px; font-variant-numeric: tabular-nums; }
+.tr-summary .ac-bar { width: 160px; height: 9px; }
+.tr-back { margin-left: auto; }
+.tr-section { margin-bottom: 22px; }
+.tr-section h2 { display: flex; align-items: baseline; gap: 12px; }
+.tr-count {
+  font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums;
+  color: var(--ac-ink-3, #645c50);
+}
+.tr-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tr-table th {
+  text-align: left; font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ac-ink-3, #645c50);
+  padding: 8px 12px 6px;
+}
+.tr-table td { padding: 6px 12px; border-bottom: 1px solid var(--ac-line, #eceee9); }
+.tr-table tr.is-passed td:first-child { box-shadow: inset 3px 0 0 #2f7d5b; }
+.tr-table tr.is-below td:first-child { box-shadow: inset 3px 0 0 #b3261e; }
+.tr-score { width: 88px; text-align: right; font-variant-numeric: tabular-nums; }
+.tr-score-head { width: 110px; }
+.tr-state { white-space: nowrap; color: var(--ac-ink-2, #41505d); }
+.tr-empty { color: var(--ac-ink-3, #645c50); font-style: italic; }

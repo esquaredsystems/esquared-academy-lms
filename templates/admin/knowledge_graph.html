@@ -289,7 +289,19 @@
       });
   }
 
-  subjectPicker.addEventListener('change', function () { load(this.value); });
+  // JET replaces this <select> with a select2 widget, and select2 fires its
+  // change event through jQuery. jQuery's trigger() does not dispatch a
+  // native DOM event, so a plain addEventListener handler never runs and the
+  // graph would stay on whichever subject loaded first. Bind through jQuery
+  // when it is present, and keep the native listener for when it is not.
+  function onSubjectChange() { load(subjectPicker.value); }
+
+  subjectPicker.addEventListener('change', onSubjectChange);
+
+  var jq = window.django && window.django.jQuery ? window.django.jQuery : window.jQuery;
+  if (jq) {
+    jq(subjectPicker).on('change', onSubjectChange);
+  }
   spacing.addEventListener('input', function () {
     NODE_HEIGHT = Number(this.value);
     if (root) { draw(); }

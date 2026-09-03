@@ -317,6 +317,20 @@ class StudentSubjectViewSet(AuditedModelViewSet):
     filterset_fields = ["enrolment", "syllabus"]
 
 
+class TopicResultViewSet(AuditedModelViewSet):
+    """
+    One student's standing on one topic of one subject.
+
+    Whether a score is a pass is not stored on the row: it is the
+    syllabus's `pass_mark_pct` that decides, so lowering or raising the
+    bar re-reads the whole year without touching a mark.
+    """
+
+    serializer_class = serializers.TopicResultSerializer
+    filterset_fields = ["student_subject", "topic", "method"]
+    ordering_fields = ["assessed_on", "score_pct"]
+
+
 class TeachingAssignmentViewSet(AuditedModelViewSet):
     """Who teaches which syllabus."""
 

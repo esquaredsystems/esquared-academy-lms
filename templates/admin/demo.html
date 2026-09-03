@@ -1,0 +1,104 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}Demo data · {{ block.super }}{% endblock %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <style>
+    .demo-wrap { max-width: 900px; }
+    .demo-lead { font-size: 15px; color: var(--ac-ink-2, #41505d); max-width: 68ch; }
+    .demo-state {
+      display: flex; flex-wrap: wrap; gap: 26px;
+      background: var(--ac-card, #fff);
+      border: 1px solid var(--ac-line, #d8ded9);
+      border-left: 3px solid var(--ac-accent-text, #0e6555);
+      border-radius: 6px; padding: 18px 22px; margin: 22px 0;
+    }
+    .demo-state div span {
+      display: block; font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--ac-ink-3, #645c50); margin-bottom: 3px;
+    }
+    .demo-state div b { font-size: 22px; font-variant-numeric: tabular-nums; }
+    .demo-actions { display: flex; gap: 12px; align-items: center; margin: 24px 0 8px; }
+    .demo-note { font-size: 13px; color: var(--ac-ink-3, #645c50); margin-top: 10px; }
+    .demo-table { width: 100%; border-collapse: collapse; margin-top: 26px; font-size: 14px; }
+    .demo-table th, .demo-table td {
+      text-align: left; padding: 9px 12px;
+      border-bottom: 1px solid var(--ac-line, #d8ded9);
+    }
+    .demo-table th { font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+                     color: var(--ac-ink-3, #645c50); }
+    .demo-danger { background: transparent !important; color: #b3261e !important;
+                   border: 1px solid #b3261e !important; }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="demo-wrap">
+  <p class="demo-lead">
+    A small fictional school to try the system with: three teachers who each
+    cover several subjects, and twenty students across all five grades.
+    E1 to S2 take the whole core set for their grade; only S3 students choose
+    electives, which is the rule the real school runs on. Part of every
+    subject is marked topic by topic, so the completion figures and the
+    knowledge maps have something in them.
+  </p>
+
+  <div class="demo-state">
+    <div><span>Teachers</span><b>{{ counts.teachers }}</b></div>
+    <div><span>Students</span><b>{{ counts.students }}</b></div>
+    <div><span>Enrolments</span><b>{{ counts.enrolments }}</b></div>
+    <div><span>Subject choices</span><b>{{ counts.choices }}</b></div>
+    <div><span>Teaching assignments</span><b>{{ counts.assignments }}</b></div>
+    <div><span>Topic marks</span><b>{{ counts.marks }}</b></div>
+  </div>
+
+  {% if not curriculum_ready %}
+    <p class="errornote">
+      There are no syllabi for {{ year }} yet, so there is nothing to enrol
+      anyone into. Run <code>python manage.py seed_curriculum</code> first.
+    </p>
+  {% endif %}
+
+  <form method="post" class="demo-actions">
+    {% csrf_token %}
+    <input type="hidden" name="year" value="{{ year }}">
+    {% if loaded %}
+      <button type="submit" name="action" value="load" class="button default">
+        Reload demo data
+      </button>
+      <button type="submit" name="action" value="remove" class="button demo-danger">
+        Remove demo data
+      </button>
+    {% else %}
+      <button type="submit" name="action" value="load" class="button default"
+              {% if not curriculum_ready %}disabled{% endif %}>
+        Activate demo data
+      </button>
+    {% endif %}
+  </form>
+
+  <p class="demo-note">
+    Removing voids the demo rows rather than deleting them, like any other
+    record here, and suspends the three teacher logins. Nothing outside the
+    demo is touched — its rows are tagged <code>DEMO-</code>.
+    Teacher logins are <code>f.siddiqui</code>, <code>i.qureshi</code> and
+    <code>n.ansari</code>, password <code>{{ demo_password }}</code>.
+  </p>
+
+  <table class="demo-table">
+    <thead>
+      <tr><th>Grade</th><th>Students</th><th>Subjects each</th></tr>
+    </thead>
+    <tbody>
+      {% for row in plan %}
+        <tr>
+          <td>{{ row.grade }}</td>
+          <td>{{ row.students }}</td>
+          <td>{{ row.subjects }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

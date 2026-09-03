@@ -785,8 +785,8 @@ code, pre { color: var(--ac-ink-2) !important; }
 .changeform-navigation-button.left { border-radius: var(--ac-pill) 0 0 var(--ac-pill) !important; }
 .changeform-navigation-button.right { border-radius: 0 var(--ac-pill) var(--ac-pill) 0 !important; }
 
-/* Knowledge graph: icon only, like the add button. The glyph is inline
-   SVG rather than a JET icon-font character — its set has no graph. */
+/* Knowledge graph: icon only, like the add button. The glyph is JET's own
+   .icon-grid (U+E619) from its icon font, so it inherits the link colour. */
 .object-tools a.graphlink {
     padding: 0 12px !important;
     min-width: 40px;
@@ -795,9 +795,9 @@ code, pre { color: var(--ac-ink-2) !important; }
     color: var(--ac-ink, #1f2a33) !important;
     border: 1px solid var(--ac-line, #d8ded9) !important;
 }
-.object-tools a.graphlink svg {
-    width: 18px;
-    height: 18px;
+.object-tools a.graphlink .icon-grid {
+    font-size: 17px;
+    line-height: 1;
     display: block;
 }
 .object-tools a.graphlink:hover,
@@ -805,4 +805,61 @@ code, pre { color: var(--ac-ink-2) !important; }
     background: var(--ac-accent-tint, #e3efeb) !important;
     border-color: var(--ac-accent-text, #0e6555) !important;
     color: var(--ac-accent-text, #0e6555) !important;
+}
+
+/* ---------------------------------------------------------------------
+ * "Include voided": a checkbox in the toolbar rather than a three-way
+ * dropdown. The toolbar label is the control; the popup underneath holds
+ * the real checkbox and a line explaining what voided means.
+ * ------------------------------------------------------------------ */
+.include-voided-filter .changelist-filter-popup-toggle {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 7px;
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid var(--ac-line, #d8ded9);
+    border-radius: var(--ac-pill, 6px);
+    background: transparent;
+    color: var(--ac-ink-2, #41505d) !important;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none !important;
+    white-space: nowrap;
+}
+.include-voided-filter .changelist-filter-popup-toggle:hover {
+    border-color: var(--ac-accent-text, #0e6555);
+    color: var(--ac-accent-text, #0e6555) !important;
+}
+.include-voided-filter .changelist-filter-popup-toggle.is-on {
+    background: var(--ac-accent-tint, #e3efeb);
+    border-color: var(--ac-accent-text, #0e6555);
+    color: var(--ac-accent-text, #0e6555) !important;
+}
+.include-voided-filter .changelist-filter-popup-toggle .icon-checkbox,
+.include-voided-filter .changelist-filter-popup-toggle .icon-checkbox-outline {
+    font-size: 15px;
+    line-height: 1;
+}
+.include-voided-filter .changelist-filter-popup-content {
+    padding: 14px 16px;
+    border: 1px solid var(--ac-line, #d8ded9);
+    box-shadow: 0 6px 20px rgba(32, 30, 29, .14) !important;
+    background: var(--ac-card, #fff) !important;
+    top: 42px !important;
+    min-width: 260px !important;
+}
+.include-voided-option {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ac-ink, #1f2a33);
+}
+.include-voided-help {
+    margin: 8px 0 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--ac-ink-3, #645c50);
 }

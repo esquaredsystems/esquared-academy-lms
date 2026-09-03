@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>JET icon set</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Every glyph in django-jet-reboot's icon font, rendered from the font the
+  project actually serves. Open it at /static/jet-icons.html while runserver
+  is up. Use one in the admin with, e.g.:
+
+      <span class="icon-star"></span>
+
+  after loading JET's icon stylesheet, or in CSS with
+  content: "\e618"; font-family: 'jet-icons';
+-->
+<link rel="stylesheet" href="/static/jet/css/icons/style.css">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 32px;
+    font: 14px/1.5 "Figtree", system-ui, sans-serif;
+    background: #f5ead8; color: #201e1d;
+  }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p  { margin: 0 0 24px; color: #474238; max-width: 60ch; }
+  .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+  .cell {
+    display: flex; align-items: center; gap: 14px;
+    background: #f9f4ed; border: 1px solid #dcd3c4; border-radius: 6px;
+    padding: 12px 14px;
+  }
+  .glyph { font-size: 24px; color: #8c491a; width: 28px; text-align: center; }
+  .meta code { display: block; font-size: 12.5px; }
+  .meta small { color: #645c50; font-variant-numeric: tabular-nums; }
+</style>
+
+<h1>JET icon set — 33 glyphs</h1>
+<p>
+  Rendered from <code>jet/css/icons/fonts/jet-icons.woff</code>, the font
+  django-jet-reboot ships. Class name and codepoint are under each glyph.
+  Nothing else exists in the set — anything outside this list has to be
+  inline SVG.
+</p>
+
+<div class="grid" id="grid"></div>
+
+<script>
+  var ICONS = [
+    ["remove","e600"],["add2","e601"],["exit","e602"],["add","e603"],
+    ["add3","e604"],["expand","e605"],["checkbox","e606"],["checkbox-outline","e607"],
+    ["arrow-down","e608"],["arrow-up","e609"],["arrow-left","e60a"],["arrow-right","e60b"],
+    ["key","e60c"],["book","e60d"],["open-external","e60e"],["data","e60f"],
+    ["cross","e610"],["clock","e611"],["calendar","e612"],["question","e613"],
+    ["tick","e614"],["edit","e615"],["new","e616"],["pin","e617"],
+    ["star","e618"],["grid","e619"],["refresh","e61a"],["jet","e61b"],
+    ["user","e61c"],["search","e61d"],["reset","e61e"],["settings","e900"],
+    ["menu","e901"]
+  ];
+  document.getElementById('grid').innerHTML = ICONS.map(function (row) {
+    return '<div class="cell">'
+      + '<span class="glyph icon-' + row[0] + '"></span>'
+      + '<span class="meta"><code>.icon-' + row[0] + '</code>'
+      + '<small>U+' + row[1].toUpperCase() + '</small></span>'
+      + '</div>';
+  }).join('');
+</script>

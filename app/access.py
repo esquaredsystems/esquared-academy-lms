@@ -97,6 +97,7 @@ def _scope_to_students(model_name, queryset, student_ids):
         "student": "id__in",
         "enrolment": "student_id__in",
         "studentsubject": "enrolment__student_id__in",
+        "topicresult": "student_subject__enrolment__student_id__in",
         "cohortmembership": "enrolment__student_id__in",
         "attempt": "student_id__in",
         "answer": "attempt__student_id__in",

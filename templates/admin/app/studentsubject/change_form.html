@@ -1,0 +1,14 @@
+{% extends "admin/change_form.html" %}
+
+{# Marks are entered in the grid, which is a page of its own: one row per
+   assessable topic of this subject. The inline below is for correcting a
+   single result. #}
+{% block object-tools-items %}
+  {% if original %}
+    <li>
+      <a href="{% url 'admin:app_studentsubject_results' original.pk %}"
+         class="ac-record-marks">Record marks</a>
+    </li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

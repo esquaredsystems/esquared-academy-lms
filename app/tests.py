@@ -5,23 +5,28 @@ Run with `python manage.py test`, which uses an in-memory database — no
 server, no files left behind.
 """
 
+import io
+import os
 import re
 import tempfile
 import uuid
 from datetime import date, timedelta
+from decimal import Decimal
 from io import StringIO
 
 from django.contrib.admin import site
 from django.contrib.auth.models import Group
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 from django.db import IntegrityError, transaction
 from django.test import Client, RequestFactory, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from . import access, audit, columns, entity_help, files, models
+from . import access, audit, columns, demo_data, entity_help, files, models
 
 
 class Fixture(TestCase):
@@ -253,6 +258,7 @@ class ApiTests(Fixture):
         self.assertEqual(
             self.client.get("/api/students/?include_voided=true").data["count"], 1
         )
+
 
     def test_locked_version_rejects_updates(self):
         version = self.draft_version()
@@ -1300,7 +1306,7 @@ class KnowledgeGraphTests(Fixture):
         self.assertEqual(self.api.get("/api/topics/tree/?subject=99999").status_code, 404)
 
     def test_the_page_renders_with_a_subject_picker(self):
-        response = self.client.get("/admin/app/topic/graph/")
+        response = self.client.get("/admin/app/subject/graph/")
         body = response.content.decode(errors="ignore")
 
         self.assertEqual(response.status_code, 200)
@@ -1308,19 +1314,886 @@ class KnowledgeGraphTests(Fixture):
         self.assertIn("d3.min.js", body)
         self.assertIn("/api/topics/tree/", body)
 
-    def test_the_topic_list_links_to_the_graph(self):
-        body = self.client.get("/admin/app/topic/").content.decode(errors="ignore")
+    def test_the_subject_list_links_to_the_graph(self):
+        body = self.client.get("/admin/app/subject/").content.decode(errors="ignore")
 
-        self.assertIn("/admin/app/topic/graph/", body)
+        self.assertIn("/admin/app/subject/graph/", body)
         self.assertIn('aria-label="Knowledge graph"', body)
-        self.assertIn("<svg", body.split("/admin/app/topic/graph/")[1][:400])
         # icon only: no words, and not JET's plus
-        anchor = body.split('/admin/app/topic/graph/"')[1].split("</a>")[0]
-        self.assertNotIn("addlink", anchor)
+        anchor = body.split('/admin/app/subject/graph/"')[1].split("</a>")[0]
+        self.assertIn("icon-grid", anchor)     # JET's icon font, not inline SVG
+        self.assertNotIn("<svg", anchor)
+        self.assertNotIn("addlink", anchor)    # not JET's plus
         self.assertNotIn("Knowledge graph<", anchor)
 
+    def test_the_topic_list_does_not_carry_the_graph_button(self):
+        body = self.client.get("/admin/app/topic/").content.decode(errors="ignore")
+
+        self.assertNotIn("subject/graph/", body)
+
+    def test_the_picker_is_bound_through_jquery_as_well(self):
+        """JET's select2 fires change through jQuery, not natively."""
+        body = self.client.get("/admin/app/subject/graph/").content.decode(errors="ignore")
+
+        self.assertIn("addEventListener('change', onSubjectChange)", body)
+        self.assertIn("jq(subjectPicker).on('change', onSubjectChange)", body)
+
     def test_the_page_needs_a_login(self):
-        response = Client().get("/admin/app/topic/graph/")
+        response = Client().get("/admin/app/subject/graph/")
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("/admin/login/", response["Location"])
+
+class IncludeVoidedFilterTests(Fixture):
+    """The admin's voided control is a checkbox: off = live only, on = both."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.user)
+        self.gone = models.Student.objects.create(
+            admission_no="A-777", first_name="Zara", last_name="Malik", created_by=self.user
+        )
+        self.gone.void(user=self.user, reason="left school")
+
+    def rows(self, query=""):
+        response = self.client.get(f"/admin/app/student/{query}")
+        body = response.content.decode(errors="ignore")
+        table = body.split('id="result_list"')[1].split("</table>")[0]
+        return table
+
+    def test_unticked_shows_live_rows_only(self):
+        table = self.rows()
+
+        self.assertIn("Khan", table)          # the live student
+        self.assertNotIn("Malik", table)      # the voided one
+
+    def test_ticked_shows_voided_alongside_live(self):
+        table = self.rows("?include_voided=1")
+
+        self.assertIn("Khan", table)
+        self.assertIn("Malik", table)
+
+    def test_the_control_renders_as_a_checkbox(self):
+        body = self.client.get("/admin/app/student/").content.decode(errors="ignore")
+
+        self.assertIn('id="include-voided-toggle"', body)
+        self.assertIn("Include voided", body)
+        self.assertNotIn("Voided only", body)     # the old three-way dropdown
+        self.assertNotIn("Live only", body)
+
+    def test_the_checkbox_reflects_the_current_state(self):
+        off = self.client.get("/admin/app/student/").content.decode(errors="ignore")
+        on = self.client.get(
+            "/admin/app/student/?include_voided=1"
+        ).content.decode(errors="ignore")
+
+        off_input = off.split('id="include-voided-toggle"')[1].split(">")[0]
+        on_input = on.split('id="include-voided-toggle"')[1].split(">")[0]
+
+        self.assertNotIn("checked", off_input)
+        self.assertIn("checked", on_input)
+
+    def test_it_keeps_other_query_parameters(self):
+        body = self.client.get(
+            "/admin/app/student/?q=Khan"
+        ).content.decode(errors="ignore")
+        on_url = body.split('data-on-url="')[1].split('"')[0]
+
+        self.assertIn("q=Khan", on_url)
+        self.assertIn("include_voided=1", on_url)
+
+
+class IncludeVoidedEverywhereTests(Fixture):
+    """The voided checkbox belongs to every audited entity, not just some."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def audited_admins(self):
+        from app.admin import IncludeVoidedFilter
+
+        return [
+            (model, model_admin, IncludeVoidedFilter)
+            for model, model_admin in site._registry.items()
+            if model._meta.app_label == "app" and hasattr(model, "voided")
+        ]
+
+    def test_every_audited_admin_declares_the_filter(self):
+        missing = [
+            model._meta.model_name
+            for model, model_admin, filter_class in self.audited_admins()
+            if not any(f is filter_class for f in (model_admin.list_filter or ()))
+        ]
+
+        self.assertEqual(missing, [])
+
+    def test_every_audited_change_list_renders_the_checkbox(self):
+        missing = []
+        for model, _model_admin, _f in self.audited_admins():
+            url = f"/admin/app/{model._meta.model_name}/"
+            body = self.client.get(url).content.decode(errors="ignore")
+            if 'id="include-voided-toggle"' not in body:
+                missing.append(model._meta.model_name)
+
+        self.assertEqual(missing, [])
+
+    def test_the_unaudited_purge_log_does_not_offer_it(self):
+        """PurgeRun carries no audit block, so there is nothing to include."""
+        body = self.client.get("/admin/app/purgerun/").content.decode(errors="ignore")
+
+        self.assertNotIn('id="include-voided-toggle"', body)
+
+
+class DemoDataTests(TestCase):
+    """The demo school: three teachers, twenty students, the school's rules."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = models.AppUser.objects.create_superuser(
+            "demoadmin", "demo@example.com", "pw12345!"
+        )
+        call_command("seed_roles", stdout=StringIO())
+        call_command("seed_curriculum", year=2026, stdout=StringIO())
+
+    def load(self):
+        out = StringIO()
+        call_command("seed_demo", year=2026, stdout=out)
+        return out.getvalue()
+
+    def demo_students(self):
+        return models.Student.objects.filter(admission_no__startswith=demo_data.PREFIX)
+
+    def test_it_loads_three_teachers_and_twenty_students(self):
+        self.load()
+
+        self.assertEqual(
+            models.Teacher.objects.filter(
+                staff_no__startswith=demo_data.PREFIX
+            ).count(),
+            3,
+        )
+        self.assertEqual(self.demo_students().count(), 20)
+        self.assertEqual(
+            models.Enrolment.objects.filter(student__in=self.demo_students()).count(), 20
+        )
+
+    def test_every_student_is_in_exactly_one_grade(self):
+        self.load()
+
+        for student in self.demo_students():
+            with self.subTest(student=student.admission_no):
+                self.assertEqual(student.enrolments.count(), 1)
+
+    def test_a_teacher_covers_several_subjects(self):
+        self.load()
+
+        for teacher in models.Teacher.objects.filter(
+            staff_no__startswith=demo_data.PREFIX
+        ):
+            subjects = {a.syllabus.subject.short_name for a in teacher.assignments.all()}
+            with self.subTest(teacher=teacher.staff_no):
+                self.assertGreater(len(subjects), 1)
+
+    def test_below_the_terminal_grade_everyone_takes_the_same_subjects(self):
+        self.load()
+
+        for code in ("E1", "E2", "S1", "S2"):
+            enrolments = models.Enrolment.objects.filter(
+                grade__short_name=code, student__in=self.demo_students()
+            )
+            taken = {
+                frozenset(s.syllabus_id for s in e.subjects.all()) for e in enrolments
+            }
+            with self.subTest(grade=code):
+                self.assertEqual(len(taken), 1, "subjects should be identical")
+
+    def test_only_the_terminal_grade_has_electives(self):
+        self.load()
+
+        electives = models.StudentSubject.objects.filter(
+            enrolment__student__in=self.demo_students(), syllabus__is_core=False
+        )
+
+        self.assertTrue(electives.exists())
+        self.assertEqual(
+            {e.enrolment.grade.short_name for e in electives}, {"S3"}
+        )
+
+    def test_terminal_students_choose_differently(self):
+        self.load()
+
+        chosen = {
+            frozenset(
+                s.syllabus.subject.short_name
+                for s in e.subjects.all()
+                if not s.syllabus.is_core
+            )
+            for e in models.Enrolment.objects.filter(
+                grade__short_name="S3", student__in=self.demo_students()
+            )
+        }
+
+        self.assertEqual(len(chosen), 4, "each S3 student picked a different set")
+
+    def test_loading_twice_changes_nothing(self):
+        self.load()
+        before = (
+            models.Student.objects.count(),
+            models.Enrolment.objects.count(),
+            models.StudentSubject.objects.count(),
+            models.TeachingAssignment.objects.count(),
+        )
+
+        self.load()
+
+        after = (
+            models.Student.objects.count(),
+            models.Enrolment.objects.count(),
+            models.StudentSubject.objects.count(),
+            models.TeachingAssignment.objects.count(),
+        )
+        self.assertEqual(before, after)
+
+    def test_removing_voids_the_demo_and_leaves_the_curriculum(self):
+        self.load()
+        subjects_before = models.Subject.objects.count()
+        topics_before = models.Topic.objects.count()
+
+        call_command("seed_demo", year=2026, remove=True, stdout=StringIO())
+
+        self.assertEqual(self.demo_students().count(), 0)           # live view
+        self.assertEqual(
+            models.Student.all_objects.filter(
+                admission_no__startswith=demo_data.PREFIX
+            ).count(),
+            20,                                                      # still there
+        )
+        self.assertEqual(models.Subject.objects.count(), subjects_before)
+        self.assertEqual(models.Topic.objects.count(), topics_before)
+
+    def test_removing_suspends_the_teacher_logins(self):
+        self.load()
+
+        call_command("seed_demo", year=2026, remove=True, stdout=StringIO())
+
+        for row in demo_data.TEACHERS:
+            account = models.AppUser.objects.get(username=row["username"])
+            with self.subTest(teacher=row["username"]):
+                self.assertTrue(account.suspended)
+                self.assertFalse(account.is_active)
+
+    def test_it_refuses_without_a_curriculum(self):
+        # Nothing is ever deleted here, so void the year's syllabi instead —
+        # which is also what an actual empty year looks like.
+        for syllabus in models.Syllabus.objects.filter(academic_year=2026):
+            syllabus.void(user=self.user, reason="test")
+
+        with self.assertRaises(CommandError):
+            call_command("seed_demo", year=2026, stdout=StringIO())
+
+
+class DemoPageTests(TestCase):
+    """The Demo entry in the side menu, and the page behind it."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = models.AppUser.objects.create_superuser(
+            "pageadmin", "page@example.com", "pw12345!"
+        )
+        call_command("seed_curriculum", year=2026, stdout=StringIO())
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_the_page_is_reachable_and_named(self):
+        self.assertEqual(reverse("demo"), "/admin/demo/")
+        self.assertEqual(self.client.get("/admin/demo/").status_code, 200)
+
+    def test_it_needs_a_login(self):
+        response = Client().get("/admin/demo/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response["Location"])
+
+    def test_the_button_loads_the_demo(self):
+        response = self.client.post(
+            "/admin/demo/", {"action": "load", "year": 2026}, follow=True
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            models.Student.objects.filter(
+                admission_no__startswith=demo_data.PREFIX
+            ).count(),
+            20,
+        )
+
+    def test_the_button_removes_it_again(self):
+        self.client.post("/admin/demo/", {"action": "load", "year": 2026})
+
+        self.client.post("/admin/demo/", {"action": "remove", "year": 2026}, follow=True)
+
+        self.assertEqual(
+            models.Student.objects.filter(
+                admission_no__startswith=demo_data.PREFIX
+            ).count(),
+            0,
+        )
+
+    def test_the_page_reports_what_is_loaded(self):
+        self.client.post("/admin/demo/", {"action": "load", "year": 2026})
+
+        body = self.client.get("/admin/demo/").content.decode(errors="ignore")
+
+        self.assertIn("Remove demo data", body)
+        self.assertIn("Reload demo data", body)
+
+
+# ---------------------------------------------------------------------
+# Portraits
+# ---------------------------------------------------------------------
+def _png(width, height, noisy=False):
+    """A PNG of the given shape. `noisy` makes it incompressible, so it
+    comfortably exceeds the 100 KB ceiling."""
+    from PIL import Image
+
+    if noisy:
+        image = Image.frombytes("RGB", (width, height), os.urandom(width * height * 3))
+    else:
+        image = Image.new("RGB", (width, height), (200, 210, 190))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _upload(name, data):
+    return SimpleUploadedFile(name, data, content_type="image/png")
+
+
+class PhotoRuleTests(Fixture):
+    """Square first, under 100 KB second — in that order."""
+
+    def test_a_small_square_picture_is_accepted(self):
+        files.validate_person_photo(_upload("ok.png", _png(240, 240)))
+
+    def test_a_rectangle_is_rejected_for_its_shape(self):
+        with self.assertRaises(ValidationError) as caught:
+            files.validate_person_photo(_upload("wide.png", _png(400, 300)))
+
+        self.assertEqual(caught.exception.code, "not_square")
+        self.assertIn("400 by 300", str(caught.exception.messages[0]))
+
+    def test_a_square_picture_over_the_ceiling_is_rejected_for_its_size(self):
+        big = _png(400, 400, noisy=True)
+        self.assertGreater(len(big), files.PHOTO_MAX_BYTES)
+
+        with self.assertRaises(ValidationError) as caught:
+            files.validate_person_photo(_upload("big.png", big))
+
+        self.assertEqual(caught.exception.code, "too_large")
+
+    def test_shape_is_reported_before_size(self):
+        """A picture that breaks both rules is told to crop, not compress."""
+        both = _png(600, 400, noisy=True)
+        self.assertGreater(len(both), files.PHOTO_MAX_BYTES)
+
+        with self.assertRaises(ValidationError) as caught:
+            files.validate_person_photo(_upload("both.png", both))
+
+        self.assertEqual(caught.exception.code, "not_square")
+
+    def test_a_file_that_is_not_an_image_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            files.validate_person_photo(_upload("notes.png", b"this is not a picture"))
+
+    def test_the_model_enforces_the_rules_on_clean(self):
+        self.student.photo = _upload("wide.png", _png(300, 200))
+
+        with self.assertRaises(ValidationError) as caught:
+            self.student.full_clean()
+
+        self.assertIn("photo", caught.exception.error_dict)
+
+    def test_a_portrait_is_stored_with_the_other_pictures(self):
+        with tempfile.TemporaryDirectory() as media:
+            with override_settings(MEDIA_ROOT=media):
+                self.student.photo = _upload("me.png", _png(120, 120))
+                self.student.save()
+
+                self.assertEqual(
+                    self.student.photo.name,
+                    f"{files.FileKind.PICTURE}/{self.student.uuid}.png",
+                )
+
+    def test_teachers_carry_one_too(self):
+        self.assertIn("photo", [f.name for f in models.Teacher._meta.get_fields()])
+
+
+# ---------------------------------------------------------------------
+# The student page: Subjects and Knowledge map
+# ---------------------------------------------------------------------
+class StudentSubjectHistoryTests(Fixture):
+    """Studying now beats passed earlier; anything untouched is untaken."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.maths = models.Subject.objects.create(
+            short_name="MATH", full_name="Mathematics", created_by=cls.user
+        )
+        cls.art = models.Subject.objects.create(
+            short_name="ART", full_name="Art and Design", created_by=cls.user
+        )
+        cls.maths_2025 = models.Syllabus.objects.create(
+            subject=cls.maths, grade=cls.grade, academic_year=2025, created_by=cls.user
+        )
+        cls.english_2026 = cls.syllabus
+
+    def enrol(self, year, ended=None):
+        return models.Enrolment.objects.create(
+            student=self.student, grade=self.grade, academic_year=year,
+            ended_on=ended, created_by=self.user,
+        )
+
+    def take(self, enrolment, syllabus):
+        return models.StudentSubject.objects.create(
+            enrolment=enrolment, syllabus=syllabus, created_by=self.user
+        )
+
+    def test_a_finished_year_counts_as_passed(self):
+        self.take(self.enrol(2025), self.maths_2025)
+
+        history = self.student.subject_history(year=2026)
+
+        self.assertEqual(history[self.maths.pk], models.SubjectStatus.PASSED)
+
+    def test_the_open_year_counts_as_studying(self):
+        self.take(self.enrol(2026), self.english_2026)
+
+        history = self.student.subject_history(year=2026)
+
+        self.assertEqual(history[self.subject.pk], models.SubjectStatus.STUDYING)
+
+    def test_an_enrolment_closed_early_counts_as_passed(self):
+        self.take(self.enrol(2026, ended=date(2026, 3, 1)), self.english_2026)
+
+        history = self.student.subject_history(year=2026)
+
+        self.assertEqual(history[self.subject.pk], models.SubjectStatus.PASSED)
+
+    def test_a_subject_continued_this_year_outranks_last_year(self):
+        maths_2026 = models.Syllabus.objects.create(
+            subject=self.maths, grade=self.grade, academic_year=2026,
+            created_by=self.user,
+        )
+        self.take(self.enrol(2025), self.maths_2025)
+        self.take(self.enrol(2026), maths_2026)
+
+        history = self.student.subject_history(year=2026)
+
+        self.assertEqual(history[self.maths.pk], models.SubjectStatus.STUDYING)
+
+    def test_a_subject_never_taken_is_absent(self):
+        self.assertNotIn(self.art.pk, self.student.subject_history(year=2026))
+
+
+class StudentPageTests(StudentSubjectHistoryTests):
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def map_url(self):
+        return reverse("admin:app_student_knowledge_map", args=[self.student.pk])
+
+    def test_the_change_page_has_a_subjects_and_a_knowledge_map_section(self):
+        body = self.client.get(
+            reverse("admin:app_student_change", args=[self.student.pk])
+        ).content.decode(errors="ignore")
+
+        self.assertIn("Subjects", body)
+        self.assertIn("Knowledge map", body)
+        self.assertIn('id="skm"', body)
+
+    def test_the_subjects_panel_lists_what_was_taken(self):
+        self.take(self.enrol(2026), self.english_2026)
+
+        body = self.client.get(
+            reverse("admin:app_student_change", args=[self.student.pk])
+        ).content.decode(errors="ignore")
+
+        self.assertIn("English Language", body)
+        self.assertIn("currently studying", body)
+
+    def test_the_map_marks_every_subject(self):
+        self.take(self.enrol(2025), self.maths_2025)
+        self.take(self.enrol(2026), self.english_2026)
+
+        payload = self.client.get(self.map_url(), {"year": 2026}).json()
+        status = {s["short_name"]: s["status"] for s in payload["subjects"]}
+
+        self.assertEqual(status["MATH"], "passed")
+        self.assertEqual(status["ENG"], "studying")
+        self.assertEqual(status["ART"], "not_taken")
+        self.assertEqual(payload["counts"]["not_taken"], 1)
+
+    def test_the_map_carries_the_topic_tree(self):
+        child = models.Topic.objects.create(
+            subject=self.subject, parent=self.topic, short_name="SKIM",
+            full_name="Skimming", created_by=self.user,
+        )
+
+        payload = self.client.get(self.map_url()).json()
+        english = next(s for s in payload["subjects"] if s["short_name"] == "ENG")
+
+        self.assertEqual(english["children"][0]["name"], "Comprehension")
+        self.assertEqual(
+            [c["id"] for c in english["children"][0]["children"]], [child.pk]
+        )
+
+    def test_the_map_needs_a_login(self):
+        self.client.logout()
+
+        response = self.client.get(self.map_url())
+
+        self.assertEqual(response.status_code, 302)
+
+    def test_the_list_links_the_admission_number_as_well_as_the_portrait(self):
+        body = self.client.get(
+            reverse("admin:app_student_changelist")
+        ).content.decode(errors="ignore")
+
+        self.assertIn(
+            f'href="/admin/app/student/{self.student.pk}/change/">A-001</a>', body
+        )
+        self.assertIn("ac-avatar", body)
+
+
+# ---------------------------------------------------------------------
+# Topic results, completion and the marking grid
+# ---------------------------------------------------------------------
+class TopicResultFixture(Fixture):
+    """
+    English with two sections, three leaves between them.
+
+        Comprehension  ->  Skimming, Inference
+        Writing        ->  (a leaf itself)
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.skimming = models.Topic.objects.create(
+            subject=cls.subject, parent=cls.topic, short_name="SKIM",
+            full_name="Skimming", sort_order=1, created_by=cls.user,
+        )
+        cls.inference = models.Topic.objects.create(
+            subject=cls.subject, parent=cls.topic, short_name="INF",
+            full_name="Inference", sort_order=2, created_by=cls.user,
+        )
+        cls.writing = models.Topic.objects.create(
+            subject=cls.subject, short_name="WRIT", full_name="Writing",
+            sort_order=2, created_by=cls.user,
+        )
+        models.SyllabusTopic.objects.create(
+            syllabus=cls.syllabus, topic=cls.topic, sort_order=1, created_by=cls.user
+        )
+        models.SyllabusTopic.objects.create(
+            syllabus=cls.syllabus, topic=cls.writing, sort_order=2, created_by=cls.user
+        )
+        cls.enrolment = models.Enrolment.objects.create(
+            student=cls.student, grade=cls.grade, academic_year=2026,
+            created_by=cls.user,
+        )
+        cls.taking = models.StudentSubject.objects.create(
+            enrolment=cls.enrolment, syllabus=cls.syllabus, created_by=cls.user
+        )
+
+    def mark(self, topic, score):
+        return models.TopicResult.objects.create(
+            student_subject=self.taking, topic=topic, score_pct=Decimal(str(score)),
+            assessed_on=date(2026, 4, 1), created_by=self.user,
+        )
+
+
+class AssessableTopicTests(TopicResultFixture):
+    def test_a_syllabus_is_assessed_at_its_leaves(self):
+        leaves = self.syllabus.assessable_topics()
+
+        self.assertEqual(
+            [t.short_name for t in leaves], ["SKIM", "INF", "WRIT"]
+        )
+
+    def test_sections_keep_their_leaves_together(self):
+        sections = self.syllabus.assessable_sections()
+
+        self.assertEqual([s.short_name for s, _ in sections], ["COMP", "WRIT"])
+        self.assertEqual([t.short_name for t in sections[0][1]], ["SKIM", "INF"])
+
+    def test_a_voided_topic_drops_out(self):
+        self.inference.void(user=self.user, reason="merged")
+
+        self.assertEqual(
+            [t.short_name for t in self.syllabus.assessable_topics()],
+            ["SKIM", "WRIT"],
+        )
+
+
+class CompletionTests(TopicResultFixture):
+    def test_completion_counts_passed_topics_over_assessable_ones(self):
+        self.mark(self.skimming, 70)
+        self.mark(self.inference, 30)
+
+        progress = self.taking.progress()
+
+        self.assertEqual(progress["total"], 3)
+        self.assertEqual(progress["assessed"], 2)
+        self.assertEqual(progress["passed"], 1)
+        self.assertEqual(progress["percent"], 33)
+
+    def test_the_pass_mark_lives_on_the_syllabus(self):
+        self.mark(self.skimming, 55)
+        self.assertEqual(self.taking.progress()["passed"], 1)
+
+        self.syllabus.pass_mark_pct = Decimal("60")
+        self.syllabus.save()
+
+        self.assertEqual(self.taking.progress()["passed"], 0)
+
+    def test_an_unassessed_topic_is_not_a_failure(self):
+        result = models.TopicResult.objects.create(
+            student_subject=self.taking, topic=self.skimming, created_by=self.user
+        )
+
+        self.assertIsNone(result.passed)
+        self.assertEqual(self.taking.progress()["assessed"], 0)
+
+    def test_a_result_must_belong_to_the_subject(self):
+        other = models.Subject.objects.create(
+            short_name="BIO", full_name="Biology", created_by=self.user
+        )
+        stray = models.Topic.objects.create(
+            subject=other, short_name="CELL", full_name="Cells", created_by=self.user
+        )
+
+        with self.assertRaises(ValidationError):
+            models.TopicResult(
+                student_subject=self.taking, topic=stray, score_pct=Decimal("80")
+            ).full_clean()
+
+    def test_one_live_result_per_topic(self):
+        self.mark(self.skimming, 70)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self.mark(self.skimming, 80)
+
+    def test_a_voided_result_stops_competing(self):
+        first = self.mark(self.skimming, 70)
+        first.void(user=self.user, reason="marked the wrong paper")
+
+        second = self.mark(self.skimming, 40)
+
+        self.assertEqual(self.taking.progress()["passed"], 0)
+        self.assertEqual(second.score_pct, Decimal("40"))
+
+
+class MarkingGridTests(TopicResultFixture):
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.user)
+        self.url = reverse("admin:app_studentsubject_results", args=[self.taking.pk])
+
+    def test_the_grid_lists_every_leaf_under_its_section(self):
+        body = self.client.get(self.url).content.decode(errors="ignore")
+
+        self.assertIn("Skimming", body)
+        self.assertIn("Inference", body)
+        self.assertIn("Writing", body)
+        self.assertIn(f'name="score_{self.skimming.pk}"', body)
+        # Sections are headings, not markable rows of their own.
+        self.assertNotIn(f'name="score_{self.topic.pk}"', body)
+
+    def test_saving_records_the_marks(self):
+        self.client.post(self.url, {
+            f"score_{self.skimming.pk}": "72",
+            f"score_{self.inference.pk}": "48",
+            f"score_{self.writing.pk}": "",
+        })
+
+        results = {r.topic_id: r.score_pct for r in self.taking.topic_results.all()}
+        self.assertEqual(results[self.skimming.pk], Decimal("72.00"))
+        self.assertEqual(results[self.inference.pk], Decimal("48.00"))
+        self.assertNotIn(self.writing.pk, results)
+        self.assertEqual(self.taking.progress()["percent"], 33)
+
+    def test_saving_again_updates_rather_than_duplicates(self):
+        self.client.post(self.url, {f"score_{self.skimming.pk}": "40"})
+        self.client.post(self.url, {f"score_{self.skimming.pk}": "90"})
+
+        rows = self.taking.topic_results.filter(topic=self.skimming)
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(rows.first().score_pct, Decimal("90.00"))
+
+    def test_clearing_a_box_clears_the_mark_without_losing_the_row(self):
+        self.client.post(self.url, {f"score_{self.skimming.pk}": "90"})
+
+        self.client.post(self.url, {f"score_{self.skimming.pk}": ""})
+
+        row = self.taking.topic_results.get(topic=self.skimming)
+        self.assertIsNone(row.score_pct)
+        self.assertIsNone(row.assessed_on)
+
+    def test_a_mark_is_dated_and_attributed(self):
+        self.client.post(self.url, {f"score_{self.skimming.pk}": "65"})
+
+        row = self.taking.topic_results.get(topic=self.skimming)
+        self.assertEqual(row.assessed_on, timezone.localdate())
+        self.assertEqual(row.created_by, self.user)
+        self.assertEqual(row.method, models.EvalMethod.TEACHER)
+
+    def test_the_student_subject_page_links_to_the_grid(self):
+        body = self.client.get(
+            reverse("admin:app_studentsubject_change", args=[self.taking.pk])
+        ).content.decode(errors="ignore")
+
+        self.assertIn(self.url, body)
+
+
+class KnowledgeMapDataTests(TopicResultFixture):
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.user)
+        self.url = reverse("admin:app_student_knowledge_map", args=[self.student.pk])
+
+    def english(self, payload):
+        return next(s for s in payload["subjects"] if s["short_name"] == "ENG")
+
+    def test_a_subject_carries_its_completion(self):
+        self.mark(self.skimming, 70)
+        self.mark(self.writing, 80)
+
+        english = self.english(self.client.get(self.url, {"year": 2026}).json())
+
+        self.assertEqual(english["topics"], 3)
+        self.assertEqual(english["passed"], 2)
+        self.assertEqual(english["percent"], 67)
+
+    def test_topics_are_marked_one_by_one(self):
+        self.mark(self.skimming, 70)
+        self.mark(self.inference, 20)
+
+        english = self.english(self.client.get(self.url).json())
+        marks = {}
+
+        def walk(nodes):
+            for node in nodes:
+                marks[node["name"]] = node["status"]
+                walk(node["children"])
+
+        walk(english["children"])
+
+        self.assertEqual(marks["Skimming"], "passed")
+        self.assertEqual(marks["Inference"], "studying")
+        self.assertEqual(marks["Writing"], "studying")
+
+    def test_a_section_is_passed_only_when_all_of_it_is(self):
+        self.mark(self.skimming, 70)
+
+        english = self.english(self.client.get(self.url).json())
+        comprehension = english["children"][0]
+
+        self.assertEqual(comprehension["status"], "studying")
+        self.assertEqual(comprehension["passed_leaves"], 1)
+        self.assertEqual(comprehension["leaves"], 2)
+
+        self.mark(self.inference, 90)
+        english = self.english(self.client.get(self.url).json())
+
+        self.assertEqual(english["children"][0]["status"], "passed")
+
+    def test_a_subject_never_taken_marks_its_topics_with_crosses(self):
+        biology = models.Subject.objects.create(
+            short_name="BIO", full_name="Biology", created_by=self.user
+        )
+        models.Topic.objects.create(
+            subject=biology, short_name="CELL", full_name="Cells", created_by=self.user
+        )
+
+        payload = self.client.get(self.url).json()
+        bio = next(s for s in payload["subjects"] if s["short_name"] == "BIO")
+
+        self.assertEqual(bio["status"], "not_taken")
+        self.assertEqual(bio["children"][0]["status"], "not_taken")
+        self.assertEqual(bio["percent"], 0)
+
+    def test_the_subjects_tab_shows_the_percentage(self):
+        self.mark(self.skimming, 70)
+
+        body = self.client.get(
+            reverse("admin:app_student_change", args=[self.student.pk])
+        ).content.decode(errors="ignore")
+
+        self.assertIn("33%", body)
+        self.assertIn("record marks", body)
+
+
+class DemoMarkTests(DemoDataTests):
+    """The demo fills in topic marks, so the maps are not blank."""
+
+    def test_loading_records_marks_against_topics(self):
+        self.load()
+
+        marks = models.TopicResult.objects.filter(
+            student_subject__enrolment__student__in=self.demo_students()
+        )
+
+        self.assertGreater(marks.count(), 200)
+        self.assertTrue(all(m.score_pct is not None for m in marks[:50]))
+
+    def test_every_demo_subject_is_partly_done_and_partly_open(self):
+        self.load()
+
+        percents = [
+            taking.progress()["percent"]
+            for taking in models.StudentSubject.objects.filter(
+                enrolment__student__in=self.demo_students()
+            ).select_related("syllabus__subject")[:12]
+        ]
+
+        self.assertTrue(any(p > 0 for p in percents))
+        self.assertTrue(all(p < 100 for p in percents))
+
+    def test_the_marks_are_the_same_every_time(self):
+        self.load()
+        first = list(
+            models.TopicResult.objects
+            .filter(student_subject__enrolment__student__in=self.demo_students())
+            .order_by("id").values_list("topic_id", "score_pct")[:40]
+        )
+
+        call_command("seed_demo", year=2026, remove=True, stdout=StringIO())
+        call_command("seed_demo", year=2026, stdout=StringIO())
+
+        second = list(
+            models.TopicResult.objects
+            .filter(student_subject__enrolment__student__in=self.demo_students())
+            .order_by("id").values_list("topic_id", "score_pct")[:40]
+        )
+        self.assertEqual(first, second)
+
+    def test_removing_voids_the_marks_too(self):
+        self.load()
+
+        call_command("seed_demo", year=2026, remove=True, stdout=StringIO())
+
+        self.assertEqual(
+            models.TopicResult.objects.filter(
+                student_subject__enrolment__student__in=
+                models.Student.all_objects.filter(
+                    admission_no__startswith=demo_data.PREFIX
+                )
+            ).count(),
+            0,
+        )

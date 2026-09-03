@@ -1,0 +1,14 @@
+{% extends "admin/academy_change_list.html" %}
+
+{# The knowledge graph draws a subject and its topic tree, so the entry
+   point belongs here rather than on the topic list. Icon only, using
+   JET's own icon font (.icon-grid, U+E619) rather than inline SVG. #}
+{% block object-tools-items %}
+  <li>
+    <a href="{% url 'admin:app_subject_graph' %}" class="graphlink"
+       title="Knowledge graph" aria-label="Knowledge graph">
+      <span class="icon-grid" aria-hidden="true"></span>
+    </a>
+  </li>
+  {{ block.super }}
+{% endblock %}

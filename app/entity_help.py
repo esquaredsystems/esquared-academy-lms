@@ -56,6 +56,7 @@ ENTITY_HELP = {
             ("guardian_name", "Contact detail only. It grants nobody any access."),
             ("guardian_contact", "The number the office rings. Also just a detail."),
             ("date_of_birth", "Used for reports and age checks; optional."),
+            ("photo", "Their portrait. Square — the width must equal the height — and under 100 KB. Stored with the other pictures and shown as the avatar in lists."),
         ],
     },
     "teacher": {
@@ -65,6 +66,7 @@ ENTITY_HELP = {
         "fields": [
             ("user", "The account they sign in with. Required — a teacher without a login cannot mark."),
             ("staff_no", "The school's identifier, unique among live records."),
+            ("photo", "Their portrait, under the same two rules as a student's: square first, then under 100 KB."),
         ],
     },
     "enrolment": {
@@ -130,6 +132,7 @@ ENTITY_HELP = {
             ("is_core", "Everyone in the grade takes it. Clear it for an S3 elective, which students then choose."),
             ("status", "draft while being built, published once teaching, retired afterwards."),
             ("date_published", "When it was published. Left empty on drafts."),
+            ("pass_mark_pct", "The mark a topic result must reach to count as passed, 50% by default. It lives here rather than on each result, so moving the bar re-reads the whole year's marks without re-entering any of them."),
         ],
     },
     "syllabustopic": {
@@ -148,6 +151,19 @@ ENTITY_HELP = {
         "fields": [
             ("enrolment", "Which student, in which year. Going through the enrolment is what keeps the choice tied to the right year."),
             ("syllabus", "The subject run they are taking. One row per subject per student per year."),
+        ],
+    },
+    "topicresult": {
+        "summary": "Where one student stands on one topic of one subject.",
+        "role": "The row the knowledge map reads, and what a subject's percent completion is counted from: passed topics over the topics the syllabus makes assessable.",
+        "context": "Marks are normally entered through the grid on a student subject row — one line per topic — rather than added here one at a time. A topic taken again in a later grade is a separate result, so the earlier one stays as it was recorded.",
+        "fields": [
+            ("student_subject", "Which student, which subject, which year — all three in one reference."),
+            ("topic", "The topic marked. It has to belong to the subject; anything else is refused."),
+            ("score_pct", "The mark out of a hundred. Empty means not assessed yet, which is not the same as failed."),
+            ("assessed_on", "The date the mark was given. Set for you when a mark is entered in the grid."),
+            ("method", "Where the mark came from: a teacher, a rule, or the AI marker."),
+            ("note", "Anything the marker wants on the record — what was weak, what to re-teach."),
         ],
     },
     "teachingassignment": {

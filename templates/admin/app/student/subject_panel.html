@@ -1,0 +1,80 @@
+{% load academy %}
+{# The Subjects tab: one block per enrolment, newest year first, with how
+   far through each subject the student is. #}
+<div class="sp-panel">
+  {% if rows %}
+    <p class="sp-lead">
+      {{ total }} subject{{ total|pluralize }} across
+      {{ rows|length }} enrolment{{ rows|length|pluralize }}.
+      Completion is passed topics over the topics the syllabus makes
+      assessable.
+    </p>
+
+    {% for row in rows %}
+      <div class="sp-year{% if row.enrolment.voided %} is-voided{% endif %}">
+        <div class="sp-year-head">
+          <b>{{ row.enrolment.academic_year }}</b>
+          <span class="sp-grade">{{ row.enrolment.grade.full_name|shorten }}</span>
+          {% if row.enrolment.voided %}
+            <span class="sp-tag is-voided">voided</span>
+          {% elif row.current %}
+            <span class="sp-tag is-current">currently studying</span>
+          {% else %}
+            <span class="sp-tag is-done">completed</span>
+          {% endif %}
+          <a class="sp-link" href="{% url 'admin:app_enrolment_change' row.enrolment.pk %}">
+            open enrolment
+          </a>
+        </div>
+
+        {% if row.subjects %}
+          <table class="sp-table">
+            <thead>
+              <tr>
+                <th>Code</th><th>Subject</th><th>Kind</th>
+                <th>Completion</th><th>Topics</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for entry in row.subjects %}
+                <tr>
+                  <td class="sp-code">{{ entry.syllabus.subject.short_name }}</td>
+                  <td>
+                    <a href="{% url 'admin:app_syllabus_change' entry.syllabus.pk %}"
+                       title="{{ entry.syllabus.subject.full_name }}">
+                      {{ entry.syllabus.subject.full_name|shorten }}
+                    </a>
+                  </td>
+                  <td>{% if entry.syllabus.is_core %}Core{% else %}Elective{% endif %}</td>
+                  <td class="sp-progress">
+                    <span class="ac-bar"><i style="width:{{ entry.progress.percent }}%"></i></span>
+                    <b>{{ entry.progress.percent }}%</b>
+                  </td>
+                  <td class="sp-code">
+                    {{ entry.progress.passed }} / {{ entry.progress.total }}
+                    {% if entry.progress.assessed %}
+                      <span class="sp-assessed">({{ entry.progress.assessed }} assessed)</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <a class="sp-link"
+                       href="{% url 'admin:app_studentsubject_results' entry.student_subject.pk %}">
+                      record marks
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="sp-empty">No subjects recorded against this enrolment.</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% else %}
+    <p class="sp-empty">
+      This student has no enrolments yet, so there are no subjects to show.
+      Add one under Enrolments.
+    </p>
+  {% endif %}
+</div>

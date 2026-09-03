@@ -1,0 +1,37 @@
+{# The Knowledge map tab. The tree is drawn by js/student-knowledge-map.js
+   from the JSON at data-url; everything here is the frame around it. #}
+<div class="skm" id="skm" data-url="{{ map_url }}" data-year="{{ year }}">
+  <div class="skm-controls">
+    <div class="skm-legend">
+      <span><i class="skm-mark is-passed">&#10003;</i> passed</span>
+      <span><i class="skm-mark is-studying">?</i> studying now</span>
+      <span><i class="skm-mark is-none">&#10007;</i> never taken</span>
+    </div>
+
+    <label class="skm-check">
+      <input type="checkbox" id="skm-hide-untaken"> Hide subjects never taken
+    </label>
+
+    <div class="skm-actions">
+      <button type="button" class="button" id="skm-expand">Expand all</button>
+      <button type="button" class="button" id="skm-collapse">Collapse all</button>
+    </div>
+
+    <div class="skm-meta" id="skm-meta"></div>
+  </div>
+
+  <div class="skm-canvas" id="skm-canvas">
+    <div class="skm-status">Loading&hellip;</div>
+  </div>
+
+  <p class="skm-note">
+    Every subject in the catalogue appears here, whether or not this
+    student has taken it, so the crosses are as plain as the ticks. Inside
+    a subject the marks come from the topic results: a tick once the topic
+    is passed against the syllabus pass mark, a question mark while it is
+    still being studied. A section is passed when everything under it is,
+    and carries its tally either way. The percentage on a subject is
+    passed topics over the topics its syllabus makes assessable — marks
+    are entered under Subjects, or on the student subject row itself.
+  </p>
+</div>

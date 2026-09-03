@@ -16,6 +16,7 @@ Mirrors the published ERD (schema v2):
 
 import os
 import uuid as uuid_lib
+from decimal import Decimal
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
@@ -104,6 +105,21 @@ class EvalMethod(models.TextChoices):
     RULE = "rule", "Rule"
     AI = "ai", "AI"
     TEACHER = "teacher", "Teacher"
+
+
+class SubjectStatus(models.TextChoices):
+    """
+    Where a student stands with one subject, for the knowledge map.
+
+    There is no per-subject result in the schema yet, so "passed" means
+    the student carried the subject through an enrolment that has since
+    finished — the year ended, or the enrolment was closed. When marks
+    arrive, this is the one place that has to change.
+    """
+
+    STUDYING = "studying", "Currently studying"
+    PASSED = "passed", "Passed"
+    NOT_TAKEN = "not_taken", "Never taken"
 
 
 # ---------------------------------------------------------------------
@@ -314,6 +330,11 @@ class Student(AuditModel):
     date_of_birth = models.DateField(null=True, blank=True)
     guardian_name = models.CharField(max_length=128, null=True, blank=True)
     guardian_contact = models.CharField(max_length=128, null=True, blank=True)
+    photo = models.ImageField(
+        upload_to=files.person_photo_path, null=True, blank=True,
+        max_length=256, validators=[files.validate_person_photo],
+        help_text=files.PHOTO_HELP,
+    )
 
     class Meta(AuditModel.Meta):
         db_table = "student"
@@ -325,6 +346,57 @@ class Student(AuditModel):
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.admission_no})"
 
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}".strip()
+
+    def subject_records(self, year=None):
+        """
+        {subject id: record} — one record per subject ever taken.
+
+        A subject taken more than once (repeated, or continued into the
+        next grade) keeps the record worth showing: the year in progress
+        if there is one, otherwise the most recent finished year. Each
+        record carries the StudentSubject row itself, so the caller can
+        read its topic results without going back to the database.
+        """
+        year = year or timezone.localdate().year
+        rows = (
+            StudentSubject.objects
+            .filter(enrolment__student=self, enrolment__voided=False, voided=False)
+            .select_related("enrolment", "syllabus", "syllabus__subject")
+        )
+
+        best = {}
+        for row in rows:
+            enrolment = row.enrolment
+            finished = bool(enrolment.ended_on) or enrolment.academic_year < year
+            record = {
+                "student_subject": row,
+                "syllabus": row.syllabus,
+                "year": enrolment.academic_year,
+                "status": SubjectStatus.PASSED if finished else SubjectStatus.STUDYING,
+            }
+            held = best.get(row.syllabus.subject_id)
+            if held is None or self._outranks(record, held):
+                best[row.syllabus.subject_id] = record
+        return best
+
+    @staticmethod
+    def _outranks(candidate, held):
+        """A year in progress beats a finished one; then the later year."""
+        studying = SubjectStatus.STUDYING
+        if (candidate["status"] == studying) != (held["status"] == studying):
+            return candidate["status"] == studying
+        return candidate["year"] > held["year"]
+
+    def subject_history(self, year=None):
+        """{subject id: SubjectStatus}, the summary of subject_records."""
+        return {
+            subject_id: record["status"]
+            for subject_id, record in self.subject_records(year=year).items()
+        }
+
 
 class Teacher(AuditModel):
     user = models.OneToOneField(
@@ -332,6 +404,11 @@ class Teacher(AuditModel):
     )
     staff_no = models.CharField(max_length=64)
     id_number = models.CharField(max_length=64, null=True, blank=True)
+    photo = models.ImageField(
+        upload_to=files.person_photo_path, null=True, blank=True,
+        max_length=256, validators=[files.validate_person_photo],
+        help_text=files.PHOTO_HELP,
+    )
 
     class Meta(AuditModel.Meta):
         db_table = "teacher"
@@ -541,6 +618,15 @@ class Syllabus(AuditModel):
         max_length=16, choices=SyllabusStatus.choices, default=SyllabusStatus.DRAFT
     )
     date_published = models.DateTimeField(null=True, blank=True)
+    pass_mark_pct = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("50.00"),
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text=(
+            "The mark a topic result must reach to count as passed. Stored "
+            "here rather than on the result, so raising or lowering the bar "
+            "re-reads the whole year's history without re-entering a mark."
+        ),
+    )
 
     class Meta(AuditModel.Meta):
         db_table = "syllabus"
@@ -555,6 +641,48 @@ class Syllabus(AuditModel):
 
     def __str__(self):
         return f"{self.subject.short_name} · {self.grade.short_name} · {self.academic_year}"
+
+    def assessable_sections(self):
+        """
+        [(section topic, [leaf topics])] in teaching order.
+
+        A syllabus lists its sections; the teaching happens in the things
+        under them. Assessing the leaf and rolling the section up from its
+        children keeps one topic from being counted twice, and makes the
+        percentage mean something — "31 of 68 topics" rather than "1 of 12
+        sections". A section with no children is its own leaf, so a flat
+        subject still works.
+        """
+        listed = list(
+            self.topics.filter(voided=False)
+            .select_related("topic")
+            .order_by("sort_order")
+        )
+        if not listed:
+            return []
+
+        children = {}
+        for topic in Topic.objects.filter(
+            subject_id=self.subject_id, voided=False
+        ).order_by("sort_order", "short_name"):
+            children.setdefault(topic.parent_id, []).append(topic)
+
+        def leaves_of(topic):
+            kids = children.get(topic.pk, [])
+            if not kids:
+                return [topic]
+            found = []
+            for kid in kids:
+                found.extend(leaves_of(kid))
+            return found
+
+        return [(row.topic, leaves_of(row.topic)) for row in listed]
+
+    def assessable_topics(self):
+        """Every leaf a student is marked against, flattened."""
+        return [
+            leaf for _section, leaves in self.assessable_sections() for leaf in leaves
+        ]
 
 
 class SyllabusTopic(AuditModel):
@@ -592,6 +720,115 @@ class StudentSubject(AuditModel):
 
     def __str__(self):
         return f"{self.enrolment.student} · {self.syllabus.subject.short_name}"
+
+    # -- progress ------------------------------------------------------
+    def progress(self):
+        """
+        How far through the subject this student is.
+
+        Percent completion is passed topics over the topics the syllabus
+        makes assessable — the plain reading of "12 of 20 topics passed is
+        60%". A topic assessed and failed counts as attempted, not as
+        progress, so the number only ever goes up by passing something.
+        """
+        topics = self.syllabus.assessable_topics()
+        pass_mark = self.syllabus.pass_mark_pct
+        results = {
+            result.topic_id: result
+            for result in self.topic_results.filter(voided=False)
+        }
+
+        passed = assessed = 0
+        for topic in topics:
+            result = results.get(topic.pk)
+            if result is None or result.score_pct is None:
+                continue
+            assessed += 1
+            if result.score_pct >= pass_mark:
+                passed += 1
+
+        total = len(topics)
+        return {
+            "total": total,
+            "assessed": assessed,
+            "passed": passed,
+            "percent": round(passed * 100 / total) if total else 0,
+            "pass_mark": pass_mark,
+        }
+
+
+class TopicResult(AuditModel):
+    """
+    Where one student stands on one topic of one subject in one year.
+
+    This is the row the knowledge map reads. It hangs off StudentSubject
+    rather than off the student, so a topic taken again in a later grade
+    is a separate result and the earlier one stays as it was recorded.
+
+    `score_pct` is the mark out of a hundred. Whether that is a pass is
+    not stored: it is the syllabus's `pass_mark_pct` that decides, read at
+    the moment the question is asked.
+    """
+
+    student_subject = models.ForeignKey(
+        StudentSubject, on_delete=models.PROTECT, related_name="topic_results"
+    )
+    topic = models.ForeignKey(
+        Topic, on_delete=models.PROTECT, related_name="student_results"
+    )
+    score_pct = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Out of 100. Empty means the topic has not been assessed yet.",
+    )
+    assessed_on = models.DateField(null=True, blank=True)
+    method = models.CharField(
+        max_length=16, choices=EvalMethod.choices, default=EvalMethod.TEACHER,
+        help_text="Who or what produced the mark: a teacher, a rule, or the AI marker.",
+    )
+    note = models.TextField(null=True, blank=True)
+
+    class Meta(AuditModel.Meta):
+        db_table = "topic_result"
+        ordering = ["topic__sort_order", "topic__short_name"]
+        indexes = [models.Index(fields=["topic", "student_subject"])]
+        constraints = [
+            unique_active(["student_subject", "topic"], "topic_result_uix"),
+        ]
+
+    def __str__(self):
+        score = "—" if self.score_pct is None else f"{self.score_pct:g}%"
+        return f"{self.student_subject} · {self.topic.short_name} · {score}"
+
+    def clean(self):
+        """A result may only be recorded against a topic of that subject."""
+        if self.topic_id and self.student_subject_id:
+            if self.topic.subject_id != self.student_subject.syllabus.subject_id:
+                raise ValidationError({
+                    "topic": "That topic belongs to a different subject.",
+                })
+
+    @property
+    def passed(self):
+        """None while unassessed — not the same as failed."""
+        if self.score_pct is None:
+            return None
+        return self.score_pct >= self.student_subject.syllabus.pass_mark_pct
+
+    @property
+    def status(self):
+        """
+        The mark the knowledge map draws for this topic.
+
+        Two states only, because the third — never taken — is a fact about
+        the subject, not about a result that exists. A topic assessed
+        below the pass mark is still "studying": the student is on it and
+        has not passed it yet, which is what a reader of the map needs to
+        know. The score itself is on the row for anyone who wants more.
+        """
+        if self.passed:
+            return SubjectStatus.PASSED
+        return SubjectStatus.STUDYING
 
 
 class TeachingAssignment(AuditModel):

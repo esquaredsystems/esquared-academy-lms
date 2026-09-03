@@ -3,6 +3,7 @@ URL configuration for the lms project.
 
     /                  redirects to the admin — the login page when signed out
     /admin/            Django admin
+    /admin/demo/       load or remove the demo school
     /admin/app/attachment/upload/   drag-and-drop uploader
     /media/            uploaded files (development only — see README)
     /api/              REST API (see app/urls.py for the resource list)
@@ -16,6 +17,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
+
+from app.admin_views import demo_view
 from django.views.generic import RedirectView
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -30,6 +33,12 @@ urlpatterns = [
     path("", RedirectView.as_view(pattern_name="admin:index", permanent=False), name="home"),
     path("jet/", include("jet.urls", "jet")),
     path("jet/dashboard/", include("jet.dashboard.urls", "jet-dashboard")),
+    # Before admin.site.urls so the admin catch-all does not swallow it.
+    path(
+        "admin/demo/",
+        admin.site.admin_view(lambda request: demo_view(request, admin.site)),
+        name="demo",
+    ),
     path("admin/", admin.site.urls),
     path("api/", include("app.urls")),
     path("api-auth/", include("rest_framework.urls")),

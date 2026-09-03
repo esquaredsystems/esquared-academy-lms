@@ -115,3 +115,95 @@ def human_size(num_bytes):
         if size < 1024 or unit == "TB":
             return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
+
+
+# ---------------------------------------------------------------------
+# Person photos
+#
+# Teacher and student portraits live beside every other picture, under
+# picture/, and are named after the row's uuid like any other upload.
+# Two rules govern them, in this order:
+#
+#   1. the image must be square — width equal to height;
+#   2. the file must be under 100 KB.
+#
+# Square comes first because it is the rule that decides whether the
+# picture can be shown at all: every avatar in the interface is drawn in
+# a square (or a circle inscribed in one), and a portrait that is not
+# square would be cropped by the browser without anyone choosing what to
+# cut. Size comes second, and is checked only once the shape is right, so
+# a person is told to crop before being told to compress.
+# ---------------------------------------------------------------------
+
+#: Second rule: the ceiling on a stored portrait.
+PHOTO_MAX_BYTES = 100 * 1024
+
+PHOTO_HELP = (
+    "Square picture — the width must equal the height — and under 100 KB."
+)
+
+
+def person_photo_path(instance, filename):
+    """`picture/<uuid><ext>`: portraits sit with the other pictures."""
+    ext = os.path.splitext(filename)[1].lower() or ".jpg"
+    return f"{FileKind.PICTURE}/{instance.uuid}{ext}"
+
+
+def photo_dimensions(value):
+    """
+    (width, height) of an uploaded or stored image, or None.
+
+    Reads through Pillow rather than trusting the browser, and leaves the
+    file rewound so the storage backend can still save it afterwards.
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        position = value.tell()
+    except (AttributeError, ValueError, OSError):
+        position = 0
+    try:
+        value.seek(0)
+        with Image.open(value) as image:
+            return image.size
+    except (UnidentifiedImageError, OSError, ValueError, AttributeError):
+        return None
+    finally:
+        try:
+            value.seek(position)
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
+def validate_person_photo(value):
+    """
+    Square first, then size — the two rules, applied in that order.
+
+    Raised one at a time on purpose: being told to crop and compress at
+    once, when cropping changes the size anyway, helps nobody.
+    """
+    from django.core.exceptions import ValidationError
+
+    size = photo_dimensions(value)
+    if size is None:
+        raise ValidationError("That file could not be read as an image.")
+
+    width, height = size
+    if width != height:
+        raise ValidationError(
+            "The picture must be square: this one is %(width)s by %(height)s "
+            "pixels. Crop it to a square and upload it again.",
+            code="not_square",
+            params={"width": width, "height": height},
+        )
+
+    file_size = getattr(value, "size", None)
+    if file_size is not None and file_size > PHOTO_MAX_BYTES:
+        raise ValidationError(
+            "The picture must be under %(limit)s: this one is %(actual)s.",
+            code="too_large",
+            params={
+                "limit": human_size(PHOTO_MAX_BYTES),
+                "actual": human_size(file_size),
+            },
+        )
