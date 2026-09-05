@@ -16,6 +16,7 @@ from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
+from . import access
 from . import entity_help as help_text
 from .columns import TruncatedColumnsMixin, shorten
 from . import files as app_files
@@ -219,13 +220,25 @@ class PhotoAdmin(AuditAdmin):
 class StudentAdmin(PhotoAdmin):
     list_display = ("avatar", "admission_no", "first_name", "last_name",
                     "date_of_birth", "live")
-    search_fields = ("admission_no", "first_name", "last_name", "id_number")
+    search_fields = ("admission_no", "first_name", "last_name", "id_number",
+                     "national_id", "email", "mobile")
     raw_id_fields = ("user",)
     fieldsets = (
         (None, {"fields": (
             "photo_preview", "photo", "user", "admission_no", "id_number",
             "first_name", "last_name", "date_of_birth",
-            "guardian_name", "guardian_contact",
+        )}),
+        ("Contact", {
+            "fields": ("email", "mobile", "address"),
+            "description": "Optional at admission. All of it is needed to enter "
+                           "a candidate for a Cambridge examination.",
+        }),
+        ("Identity document", {
+            "fields": ("national_id_type", "national_id"),
+            "description": "The name above must match this document exactly.",
+        }),
+        ("Guardian", {"fields": (
+            "guardian_name", "guardian_contact", "guardian_contact_2",
         )}),
         ("Subjects", {"fields": ("subject_panel",)}),
         ("Knowledge map", {"fields": ("knowledge_map_panel",)}),
@@ -888,6 +901,14 @@ class PaperVersionAdmin(AuditAdmin):
 
     @admin.action(description="Lock selected versions")
     def lock_selected(self, request, queryset):
+        if not access.may_approve_papers(request.user):
+            self.message_user(
+                request,
+                "Locking a paper is an approval, not an edit. It is reserved "
+                "for Head of Department, Academic Admin and Admin.",
+                messages.ERROR,
+            )
+            return
         locked = 0
         for version in queryset:
             if not version.is_locked:

@@ -17,7 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import filters, mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.parsers import (
     FileUploadParser,
     FormParser,
@@ -457,6 +457,11 @@ class PaperVersionViewSet(AuditedModelViewSet):
     @action(detail=True, methods=["post"])
     def lock(self, request, pk=None):
         version = self.get_object()
+        if not access.may_approve_papers(request.user):
+            raise PermissionDenied(
+                "Locking a paper is an approval, not an edit. It is reserved "
+                "for Head of Department, Academic Admin and Admin."
+            )
         if version.is_locked:
             raise ValidationError("This version is already locked.")
         version.lock(user=self._user())

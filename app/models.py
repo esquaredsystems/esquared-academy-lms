@@ -107,6 +107,14 @@ class EvalMethod(models.TextChoices):
     TEACHER = "teacher", "Teacher"
 
 
+class NationalIdType(models.TextChoices):
+    """Which document a student's national_id came from."""
+
+    CNIC = "cnic", "CNIC"
+    B_FORM = "b_form", "B-Form"
+    PASSPORT = "passport", "Passport"
+
+
 class SubjectStatus(models.TextChoices):
     """
     Where a student stands with one subject, for the knowledge map.
@@ -325,11 +333,53 @@ class Student(AuditModel):
     )
     admission_no = models.CharField(max_length=64)
     id_number = models.CharField(max_length=64, null=True, blank=True)
-    first_name = models.CharField(max_length=128)
-    last_name = models.CharField(max_length=128)
+    first_name = models.CharField(
+        max_length=128,
+        help_text="As printed on the national ID. Many names do not split, "
+                  "so everything but the final word belongs here.",
+    )
+    last_name = models.CharField(
+        max_length=128, blank=True, default="",
+        help_text="Optional — leave empty when the ID carries a single name.",
+    )
     date_of_birth = models.DateField(null=True, blank=True)
+
+    # Contact. Optional at admission and filled in later; all of it is
+    # required to enter a candidate for a Cambridge examination.
+    email = models.EmailField(
+        max_length=254, null=True, blank=True, default=None,
+        help_text="Unique to this student — two students may not share one. "
+                  "Optional at admission; required before an exam entry. "
+                  "Stored as empty (NULL) when not yet known.",
+    )
+    mobile = models.CharField(
+        max_length=32, blank=True, default="",
+        help_text="Mobile number, with country code for an overseas number.",
+    )
+    address = models.TextField(
+        blank=True, default="",
+        help_text="Residential address, as it should appear on an exam entry.",
+    )
+
+    # Identity documents.
+    national_id = models.CharField(
+        max_length=64, null=True, blank=True, default=None,
+        help_text="CNIC, B-Form or passport number, exactly as printed. "
+                  "Unique — no two students may share one. Optional at "
+                  "admission; required before an exam entry.",
+    )
+    national_id_type = models.CharField(
+        max_length=16, choices=NationalIdType.choices, blank=True, default="",
+        help_text="Which document national_id came from.",
+    )
+
     guardian_name = models.CharField(max_length=128, null=True, blank=True)
     guardian_contact = models.CharField(max_length=128, null=True, blank=True)
+    guardian_contact_2 = models.CharField(
+        max_length=128, blank=True, default="",
+        help_text="A second number for the guardian. Cambridge asks for two "
+                  "for candidates under 18.",
+    )
     photo = models.ImageField(
         upload_to=files.person_photo_path, null=True, blank=True,
         max_length=256, validators=[files.validate_person_photo],
@@ -341,10 +391,28 @@ class Student(AuditModel):
         ordering = ["last_name", "first_name"]
         constraints = [
             unique_active(["admission_no"], "student_admission_uix"),
+            # A blank email is stored as NULL, and MySQL treats NULLs as
+            # distinct, so any number of students may have no email while
+            # no two live students may share the same one.
+            unique_active(["email"], "student_email_uix"),
+            unique_active(["national_id"], "student_national_id_uix"),
         ]
 
+    #: Blank means "not known yet", which must not collide under the unique
+    #: indexes above. Django's admin submits an empty string, so it is
+    #: turned into NULL on the way in.
+    NULL_WHEN_BLANK = ("email", "national_id")
+
+    def save(self, *args, **kwargs):
+        for field in self.NULL_WHEN_BLANK:
+            if not (getattr(self, field) or "").strip():
+                setattr(self, field, None)
+            else:
+                setattr(self, field, getattr(self, field).strip())
+        return super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.first_name} {self.last_name} ({self.admission_no})"
+        return f"{self.full_name} ({self.admission_no})"
 
     @property
     def full_name(self):

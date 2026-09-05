@@ -14,24 +14,78 @@ Two layers, because one is not enough:
 The roles:
 
     Admin                 everything
-    Teaching Staff        curriculum, questions, papers, marking, registers,
-                          and student profiles
+    Admin                 everything, including permissions and passwords
+    Academic Admin        all school data, but no control over permissions
+    IT Administrator      accounts, permissions and passwords, but no results
+    Head of Department    academic authority: approves syllabi, locks papers
+    Teaching Staff        teaching, attendance and their students
+    Paper Setter          the question bank and draft papers; no student data
+    Marking Reviewer      confirms or overrides grades; cannot edit papers
+    Exam Operations       scanning and uploading scripts; no grades
     Non-academic Staff    attendance, and the student and grade lists it needs
     Student               their own record, results and attendance
     Guardian              read-only, and only for the students linked to them
     Guest                 read-only list of grades, subjects and topics
+
+One person may hold several roles; that is the normal case in a small
+academy. The roles describe *jobs*, not people, so a single teacher can
+be Teaching Staff, Paper Setter and Marking Reviewer at once, and the
+separation only starts to bite once there are enough staff to want it.
+
+Row scoping for Head of Department is deliberately not implemented: the
+schema records no notion of who heads which subject, so the role sees
+every subject. Narrowing it needs a new table and a migration.
 """
 
 from rest_framework.permissions import DjangoModelPermissions
 
 ADMIN = "Admin"
+ACADEMIC_ADMIN = "Academic Admin"
+IT_ADMIN = "IT Administrator"
+HEAD_OF_DEPARTMENT = "Head of Department"
 TEACHING_STAFF = "Teaching Staff"
+PAPER_SETTER = "Paper Setter"
+MARKING_REVIEWER = "Marking Reviewer"
+EXAM_OPERATIONS = "Exam Operations"
 NON_ACADEMIC_STAFF = "Non-academic Staff"
 STUDENT = "Student"
 GUARDIAN = "Guardian"
 GUEST = "Guest"
 
-ROLES = [ADMIN, TEACHING_STAFF, NON_ACADEMIC_STAFF, STUDENT, GUARDIAN, GUEST]
+ROLES = [
+    ADMIN,
+    ACADEMIC_ADMIN,
+    IT_ADMIN,
+    HEAD_OF_DEPARTMENT,
+    TEACHING_STAFF,
+    PAPER_SETTER,
+    MARKING_REVIEWER,
+    EXAM_OPERATIONS,
+    NON_ACADEMIC_STAFF,
+    GUARDIAN,
+    STUDENT,
+    GUEST,
+]
+
+#: Staff roles: they see every row of any table their permissions reach.
+#: Student and Guardian are absent by design — their whole definition is
+#: *which* rows they get, and that is decided by `scope_queryset`.
+STAFF_ROLES = [
+    ADMIN,
+    ACADEMIC_ADMIN,
+    IT_ADMIN,
+    HEAD_OF_DEPARTMENT,
+    TEACHING_STAFF,
+    PAPER_SETTER,
+    MARKING_REVIEWER,
+    EXAM_OPERATIONS,
+    NON_ACADEMIC_STAFF,
+]
+
+#: Roles allowed to lock a paper version — the sign-off gate. Setting a
+#: paper and approving it are separate acts; a Paper Setter drafts, and
+#: someone with academic authority freezes it.
+PAPER_APPROVAL_ROLES = [ADMIN, ACADEMIC_ADMIN, HEAD_OF_DEPARTMENT]
 
 #: Everything a Guest may read. Nothing else is visible to them at all.
 GUEST_VISIBLE_MODELS = {"grade", "subject", "topic"}
@@ -74,7 +128,7 @@ def is_unrestricted(user):
         return False
     if user.is_superuser:
         return True
-    return has_role(user, ADMIN, TEACHING_STAFF, NON_ACADEMIC_STAFF)
+    return has_role(user, *STAFF_ROLES)
 
 
 def _student_for(user):
@@ -150,3 +204,18 @@ def scope_queryset(user, queryset):
         return _scope_to_students(model_name, queryset, wards)
 
     return queryset.none()
+
+
+def may_approve_papers(user):
+    """
+    Whether `user` may lock a paper version.
+
+    Locking freezes a paper and pins its marking prompts, so it is the
+    point at which a draft becomes the thing students will actually sit.
+    Composing a paper and signing it off are separate acts.
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    return has_role(user, *PAPER_APPROVAL_ROLES)

@@ -1,5 +1,5 @@
 """
-Create the six roles and give each one its permissions.
+Create the roles and give each one its permissions.
 
     python manage.py seed_roles
     python manage.py seed_roles --dry-run
@@ -37,13 +37,64 @@ PEOPLE = ["student", "teacher", "enrolment", "studentsubject", "teachingassignme
 ROLE_PERMISSIONS = {
     access.ADMIN: "all",
 
-    access.TEACHING_STAFF: {
-        **{m: EDIT for m in CURRICULUM},
+    # Everything a school runs on, but no control over who may do what.
+    # Permissions and passwords belong to IT Administrator; both sit under
+    # a superuser Owner login used sparingly.
+    access.ACADEMIC_ADMIN: {
+        **{m: ALL for m in CURRICULUM},
         **{m: ALL for m in QUESTIONS},
         **{m: ALL for m in PAPERS},
         **{m: ALL for m in MARKING},
         **{m: ALL for m in ATTENDANCE},
         **{m: ALL for m in FILES},
+        **{m: ALL for m in PEOPLE},
+        "retentionpolicy": READ,
+        "purgerun": READ,
+    },
+
+    # Keeps the system running without seeing what is inside it. Accounts
+    # and permissions are Django's own `auth` tables, granted in `handle`.
+    access.IT_ADMIN: {
+        "retentionpolicy": EDIT,
+        "purgerun": READ,
+        "uploadsession": READ,
+    },
+
+    # Academic authority. The one role that may lock a paper — see
+    # `access.PAPER_APPROVAL_ROLES` and `may_approve_papers`.
+    access.HEAD_OF_DEPARTMENT: {
+        **{m: ALL for m in CURRICULUM},
+        **{m: ALL for m in QUESTIONS},
+        **{m: ALL for m in PAPERS},
+        **{m: ALL for m in MARKING},
+        **{m: READ for m in ATTENDANCE},
+        **{m: EDIT for m in FILES},
+        "student": READ,
+        "teacher": READ,
+        "enrolment": READ,
+        "studentsubject": EDIT,
+        "studentcohort": ALL,
+        "cohortmembership": ALL,
+        "teachingassignment": ALL,
+        "guardianlink": READ,
+    },
+
+    # Teaching and the pastoral side of it. Paper setting and marking have
+    # moved to the two roles below; a teacher who does those jobs is given
+    # those roles as well.
+    access.TEACHING_STAFF: {
+        **{m: READ for m in CURRICULUM},
+        **{m: ALL for m in ATTENDANCE},
+        **{m: EDIT for m in FILES},
+        "topicresult": EDIT,
+        "attempt": READ,
+        "answer": READ,
+        "evaluation": READ,
+        "question": READ,
+        "questionpaper": READ,
+        "paperversion": READ,
+        "paperitem": READ,
+        "paperassignment": READ,
         "student": EDIT,
         "enrolment": EDIT,
         "studentsubject": EDIT,
@@ -52,6 +103,50 @@ ROLE_PERMISSIONS = {
         "teachingassignment": READ,
         "teacher": READ,
         "guardianlink": READ,
+    },
+
+    # Composes questions and drafts papers. No student data at all, so a
+    # setter cannot see whose work their paper will be marked against.
+    access.PAPER_SETTER: {
+        **{m: READ for m in CURRICULUM},
+        **{m: ALL for m in QUESTIONS},
+        "questionpaper": ALL,
+        "paperversion": EDIT,
+        "paperitem": ALL,
+        "attachment": EDIT,
+        "attachmentlink": EDIT,
+        "uploadsession": EDIT,
+    },
+
+    # Confirms or overrides what the grader proposed. Cannot touch the
+    # paper or the questions, so a mark cannot be defended by rewriting
+    # the question after the fact.
+    access.MARKING_REVIEWER: {
+        **{m: READ for m in CURRICULUM},
+        **{m: READ for m in QUESTIONS},
+        **{m: READ for m in PAPERS},
+        **{m: EDIT for m in MARKING},
+        "student": READ,
+        "enrolment": READ,
+        "studentsubject": READ,
+        "attachment": READ,
+        "attachmentlink": READ,
+    },
+
+    # Handles the paper, not the verdict: scans scripts and matches each
+    # to the right student and paper. Deliberately blind to grades.
+    access.EXAM_OPERATIONS: {
+        **{m: READ for m in CURRICULUM},
+        **{m: ALL for m in FILES},
+        "questionpaper": READ,
+        "paperversion": READ,
+        "paperassignment": READ,
+        "attempt": EDIT,
+        "answer": EDIT,
+        "student": READ,
+        "enrolment": READ,
+        "studentcohort": READ,
+        "cohortmembership": READ,
     },
 
     access.NON_ACADEMIC_STAFF: {
@@ -104,7 +199,7 @@ ROLE_PERMISSIONS = {
 
 
 class Command(BaseCommand):
-    help = "Create the Admin / Teaching Staff / Non-academic Staff / Student / Guardian / Guest roles."
+    help = "Create every role in app.access.ROLES and set its permissions."
 
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", action="store_true", help="Report without writing.")
@@ -124,6 +219,29 @@ class Command(BaseCommand):
                         permissions = list(Permission.objects.filter(content_type__app_label="app"))
                         permissions += list(
                             Permission.objects.filter(content_type__app_label="auth")
+                        )
+                    elif role == access.IT_ADMIN:
+                        # Accounts, groups and permissions live in Django's
+                        # own `auth` app, plus the handful of app tables
+                        # listed above. No student or assessment data.
+                        codenames = [
+                            f"{action}_{model}"
+                            for model, actions in spec.items()
+                            for action in actions
+                            if model in app_types
+                        ]
+                        permissions = list(
+                            Permission.objects.filter(
+                                content_type__app_label="app", codename__in=codenames
+                            )
+                        )
+                        permissions += list(
+                            Permission.objects.filter(content_type__app_label="auth")
+                        )
+                        permissions += list(
+                            Permission.objects.filter(
+                                content_type__app_label="app", codename__in=["view_appuser", "add_appuser", "change_appuser"]
+                            )
                         )
                     else:
                         codenames = [
