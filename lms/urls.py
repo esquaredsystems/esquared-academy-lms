@@ -3,6 +3,16 @@ URL configuration for the lms project.
 
     /                  redirects to the admin — the login page when signed out
     /admin/            Django admin
+    /admin/home/       a teacher's home: six ways in and nothing else
+    /admin/calendar/   their lessons, month by month
+    /admin/browse/     grade > subject > topic > lectures and assignments
+    /admin/my-day/     a teacher's own screen: today's lessons
+    /admin/lesson/<id>/materials/   upload lecture material
+    /admin/handout/<id>/            print it, hand it out, watch it come back
+    /admin/my-subjects/ everything a teacher teaches, and how far ahead
+    /admin/checking/   the examiner's queue of work to check
+    /admin/my-work/    the student's side: what is open, and handing it in
+    /admin/app/        redirects home; the app index duplicated it
     /admin/demo/       load or remove the demo school
     /admin/app/attachment/upload/   drag-and-drop uploader
     /media/            uploaded files (development only — see README)
@@ -18,7 +28,23 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
-from app.admin_views import demo_view
+from app.admin_views import (
+    demo_view,
+    handout_extend_view,
+    handout_print_view,
+    handout_view,
+    lesson_materials_view,
+    assignments_view,
+    browse_view,
+    check_submission_view,
+    checking_queue_view,
+    calendar_view,
+    my_day_view,
+    new_handout_view,
+    my_subjects_view,
+    teacher_home_view,
+    my_work_view,
+)
 from django.views.generic import RedirectView
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -34,6 +60,106 @@ urlpatterns = [
     path("jet/", include("jet.urls", "jet")),
     path("jet/dashboard/", include("jet.dashboard.urls", "jet-dashboard")),
     # Before admin.site.urls so the admin catch-all does not swallow it.
+    path(
+        # Django's per-application index. It used to list the app's
+        # models; now that the dashboard shows the same role panels as the
+        # home page it is a second door into the same room, so the "App"
+        # breadcrumb goes home instead of rendering a duplicate.
+        "admin/app/",
+        RedirectView.as_view(pattern_name="admin:index", permanent=False),
+    ),
+    path(
+        "admin/home/",
+        admin.site.admin_view(lambda request: teacher_home_view(request, admin.site)),
+        name="teacher-home",
+    ),
+    path(
+        "admin/assignments/",
+        admin.site.admin_view(lambda request: assignments_view(request, admin.site)),
+        name="assignments",
+    ),
+    path(
+        "admin/calendar/",
+        admin.site.admin_view(lambda request: calendar_view(request, admin.site)),
+        name="calendar",
+    ),
+    path(
+        "admin/browse/",
+        admin.site.admin_view(lambda request: browse_view(request, admin.site)),
+        name="browse",
+    ),
+    path(
+        "admin/my-day/",
+        admin.site.admin_view(lambda request: my_day_view(request, admin.site)),
+        name="my-day",
+    ),
+    path(
+        # Upload straight onto a lesson. The admin's own inline only links
+        # to a file that already exists.
+        "admin/lesson/<int:lesson_id>/materials/",
+        admin.site.admin_view(
+            lambda request, lesson_id: lesson_materials_view(
+                request, lesson_id, admin.site
+            )
+        ),
+        name="lesson-materials",
+    ),
+    path(
+        "admin/lesson/<int:lesson_id>/handout/new/",
+        admin.site.admin_view(
+            lambda request, lesson_id: new_handout_view(request, lesson_id, admin.site)
+        ),
+        name="new-handout",
+    ),
+    path(
+        "admin/handout/<int:handout_id>/",
+        admin.site.admin_view(
+            lambda request, handout_id: handout_view(request, handout_id, admin.site)
+        ),
+        name="handout",
+    ),
+    path(
+        "admin/handout/<int:handout_id>/extend/",
+        admin.site.admin_view(
+            lambda request, handout_id: handout_extend_view(
+                request, handout_id, admin.site
+            )
+        ),
+        name="handout-extend",
+    ),
+    path(
+        "admin/handout/<int:handout_id>/print/",
+        admin.site.admin_view(
+            lambda request, handout_id: handout_print_view(
+                request, handout_id, admin.site
+            )
+        ),
+        name="handout-print",
+    ),
+    path(
+        "admin/my-subjects/",
+        admin.site.admin_view(lambda request: my_subjects_view(request, admin.site)),
+        name="my-subjects",
+    ),
+    path(
+        "admin/checking/",
+        admin.site.admin_view(lambda request: checking_queue_view(request, admin.site)),
+        name="checking-queue",
+    ),
+    path(
+        "admin/submission/<int:submission_id>/check/",
+        admin.site.admin_view(
+            lambda request, submission_id: check_submission_view(
+                request, submission_id, admin.site
+            )
+        ),
+        name="check-submission",
+    ),
+    path(
+        "admin/my-work/",
+        admin.site.admin_view(lambda request: my_work_view(request, admin.site)),
+        name="my-work",
+    ),
     path(
         "admin/demo/",
         admin.site.admin_view(lambda request: demo_view(request, admin.site)),

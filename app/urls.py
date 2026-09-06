@@ -14,7 +14,7 @@ Extra actions worth knowing about:
     GET  /api/attempts/{id}/answers/
     GET  /api/answers/{id}/evaluations/
 
-    POST /api/attendance-sessions/{id}/mark/   mark a whole register at once
+    POST /api/handouts/{id}/activate/          hand a sheet out to the class\n    POST /api/handouts/{id}/close/             stop accepting work\n    GET  /api/handouts/{id}/completion/        who has handed in\n\n    POST /api/lessons/{id}/submit/             hand a lesson to a head for review\n    POST /api/lessons/{id}/approve/            approve it; from here it is content\n    POST /api/lessons/{id}/return_for_changes/ send it back, with a reason\n\n    POST /api/attendance-sessions/{id}/mark/   mark a whole register at once
 
     POST /api/uploads/                  start a chunked upload
     PUT  /api/uploads/{uuid}/chunk/     append bytes
@@ -47,6 +47,22 @@ router.register("topic-results", views.TopicResultViewSet, basename="topicresult
 router.register(
     "teaching-assignments", views.TeachingAssignmentViewSet, basename="teachingassignment"
 )
+
+# timetable and lessons
+router.register("timetable-slots", views.TimetableSlotViewSet, basename="timetableslot")
+router.register("lessons", views.LessonViewSet, basename="lesson")
+router.register("lesson-topics", views.LessonTopicViewSet, basename="lessontopic")
+router.register("lecture-items", views.LectureItemViewSet, basename="lectureitem")
+
+# handouts and what students hand back
+router.register("handouts", views.HandoutViewSet, basename="handout")
+router.register("handout-lessons", views.HandoutLessonViewSet, basename="handoutlesson")
+router.register("submissions", views.SubmissionViewSet, basename="submission")
+router.register(
+    "handout-extensions", views.HandoutExtensionViewSet,
+    basename="handoutextension",
+)
+router.register("handout-sheets", views.HandoutSheetViewSet, basename="handoutsheet")
 
 # prompt library
 router.register("prompts", views.EvaluationPromptViewSet, basename="evaluationprompt")

@@ -1,0 +1,55 @@
+{% extends "admin/base_site.html" %}
+{% block title %}My subjects · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .subj-head{margin:0 0 18px}
+  .subj-head h1{margin:0 0 4px;font-size:26px}
+  .subj-head .sub{color:var(--ac-ink-3,#645c50);font-size:13px}
+  table.subj{width:100%;border-collapse:collapse;font-size:14px}
+  table.subj th{text-align:left;font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);padding:8px 10px;
+    border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.subj td{padding:11px 10px;border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.subj td.n{font-variant-numeric:tabular-nums}
+  table.subj a{text-decoration:none}
+  .warn{color:#8c2f2f;font-weight:700}
+  .ok{color:#2f6b35;font-weight:700}
+  .empty{color:var(--ac-ink-3,#645c50)}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="subj-head">
+  <h1>My subjects</h1>
+  <div class="sub">
+    {% if teacher %}{{ teacher }} · {% endif %}
+    prepared ahead counts lessons between tomorrow and {{ horizon|date:"j F" }}
+  </div>
+</div>
+
+<table class="subj">
+  <tr>
+    <th>Grade</th><th>Subject</th>
+    <th>Lessons</th><th>Prepared ahead</th><th>Not logged</th>
+    <th>Handouts</th><th>Open</th><th>Taught</th>
+  </tr>
+  {% for r in rows %}
+    <tr>
+      <td>{{ r.syllabus.grade }}</td>
+      <td><a href="{{ r.url }}">{{ r.syllabus.subject }}</a></td>
+      <td class="n">{{ r.lessons }}</td>
+      <td class="n {% if r.ahead %}ok{% else %}warn{% endif %}">{{ r.ahead }}</td>
+      <td class="n {% if r.unlogged %}warn{% endif %}">{{ r.unlogged }}</td>
+      <td class="n"><a href="{{ r.handouts_url }}">{{ r.handouts }}</a></td>
+      <td class="n">{{ r.open }}</td>
+      <td class="n">{{ r.hours }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="8" class="empty">
+      Nothing yet. Lessons appear here once they exist for a class you teach.
+    </td></tr>
+  {% endfor %}
+</table>
+
+<p style="margin-top:22px"><a href="{{ my_day_url }}">← My day</a></p>
+{% endblock %}

@@ -16,6 +16,7 @@ Mirrors the published ERD (schema v2):
 
 import os
 import uuid as uuid_lib
+from datetime import datetime, time as datetime_time
 from decimal import Decimal
 
 from django.conf import settings
@@ -65,6 +66,65 @@ class PromptStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
     ACTIVE = "active", "Active"
     RETIRED = "retired", "Retired"
+
+
+class LessonStatus(models.TextChoices):
+    """
+    A lesson's place in the review workflow.
+
+    A teacher drafts and submits; a Head of Department approves or sends
+    it back. Only an approved lesson is course content, and only approved
+    material reaches students.
+    """
+
+    DRAFT = "draft", "Draft"
+    SUBMITTED = "submitted", "Submitted for review"
+    APPROVED = "approved", "Approved"
+    RETURNED = "returned", "Returned for changes"
+    RETIRED = "retired", "Retired"
+
+
+class HandoutStatus(models.TextChoices):
+    """
+    A handout's life.
+
+    DRAFT while it is being written, ACTIVE once the teacher hands it out
+    — which is also the moment it appears in the students' accounts —
+    and CLOSED when submissions are no longer accepted.
+    """
+
+    DRAFT = "draft", "Draft"
+    ACTIVE = "active", "Active"
+    CLOSED = "closed", "Closed"
+    RETIRED = "retired", "Retired"
+
+
+class SubmissionState(models.TextChoices):
+    SUBMITTED = "submitted", "Submitted"
+    GRADING = "grading", "Being marked"
+    MARKED = "marked", "Marked"
+    RETURNED = "returned", "Returned for redoing"
+    ACCEPTED = "accepted", "Accepted"
+    REJECTED = "rejected", "Rejected — unreadable"
+
+
+class TimerStatus(models.TextChoices):
+    """Where the class clock is, said plainly rather than deduced."""
+
+    IDLE = "idle", "Not started"
+    RUNNING = "running", "Running"
+    PAUSED = "paused", "Paused"
+    ENDED = "ended", "Ended"
+
+
+class DayOfWeek(models.IntegerChoices):
+    MONDAY = 0, "Monday"
+    TUESDAY = 1, "Tuesday"
+    WEDNESDAY = 2, "Wednesday"
+    THURSDAY = 3, "Thursday"
+    FRIDAY = 4, "Friday"
+    SATURDAY = 5, "Saturday"
+    SUNDAY = 6, "Sunday"
 
 
 class PaperPurpose(models.TextChoices):
@@ -575,6 +635,27 @@ class Topic(AuditModel):
     sort_order = models.IntegerField(default=0, verbose_name="sort")
     visible = models.BooleanField(default=True)
     attachments = GenericRelation("AttachmentLink", related_query_name="topic")
+
+    def teaching_summary(self, syllabus=None):
+        """
+        How much teaching this topic has actually taken.
+
+        Counts the lessons it appeared in and sums their clock. Both are
+        facts nobody typed, which is what makes them worth comparing —
+        "Quadratics took 4 lessons and 3h 20m" is checkable in a way that
+        "Quadratics was 70%" never was.
+        """
+        entries = self.lessons.filter(voided=False).select_related("lesson")
+        if syllabus is not None:
+            entries = entries.filter(lesson__syllabus=syllabus)
+        lessons = [e.lesson for e in entries if not e.lesson.voided]
+        seconds = sum(lesson.teaching_seconds for lesson in lessons)
+        return {
+            "lessons": len(lessons),
+            "seconds": seconds,
+            "display": f"{seconds // 3600}h {(seconds % 3600) // 60:02d}m" if seconds else "",
+            "finished": any(e.covered for e in entries),
+        }
 
     class Meta(AuditModel.Meta):
         db_table = "topic"
@@ -1642,6 +1723,954 @@ class AttendanceRecord(AuditModel):
 # in the system can carry files without every model growing its own
 # columns. Uploads of any size arrive in chunks through UploadSession.
 # ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# Timetable and lessons
+# ---------------------------------------------------------------------
+class TimetableSlot(AuditModel):
+    """
+    The weekly pattern: one subject, one grade, one day, one period.
+
+    Set once and changed rarely. It is a template, not a record of what
+    happened — the lesson actually taught is a `Lesson`, created from this
+    slot. Keeping them apart is what lets a teacher swap a day without
+    rewriting the weeks already taught.
+
+    Breaks are not modelled. Nothing is logged against them, so the grid
+    holds only the periods that are lessons.
+    """
+
+    syllabus = models.ForeignKey(
+        Syllabus, on_delete=models.PROTECT, related_name="timetable_slots",
+        help_text="The subject, grade and year this slot teaches.",
+    )
+    teacher = models.ForeignKey(
+        Teacher, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="timetable_slots",
+        help_text="Who normally teaches it. A lesson may name someone else.",
+    )
+    day_of_week = models.PositiveSmallIntegerField(choices=DayOfWeek.choices)
+    period = models.CharField(
+        max_length=32,
+        help_text="Period label, matching the one used on registers — '1', '2', 'assembly'.",
+    )
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+
+    class Meta(AuditModel.Meta):
+        db_table = "timetable_slot"
+        ordering = ["day_of_week", "period"]
+        indexes = [models.Index(fields=["day_of_week", "period"])]
+        constraints = [
+            unique_active(
+                ["syllabus", "day_of_week", "period"], "timetable_slot_uix"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.syllabus} · {self.get_day_of_week_display()} {self.period}"
+
+
+class Lesson(AuditModel):
+    """
+    One class, on one date — the thing a teacher actually stands up and
+    teaches, and the row everything about that class hangs off.
+
+    Created from a `TimetableSlot`, but editable on its own, so a swapped
+    day changes that lesson and leaves the pattern and the weeks already
+    taught alone.
+
+    Course content is built up as the year runs, so a lesson is drafted by
+    its teacher, submitted, and approved by a Head of Department before it
+    counts as course content. `status` carries that; nothing reaches
+    students until it is APPROVED.
+
+    Lecture material attaches through `attachments`, the same generic link
+    every other file in the system uses.
+    """
+
+    syllabus = models.ForeignKey(
+        Syllabus, on_delete=models.PROTECT, related_name="lessons"
+    )
+    slot = models.ForeignKey(
+        TimetableSlot, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="lessons",
+        help_text="The weekly slot this came from. Empty for a one-off lesson.",
+    )
+    teacher = models.ForeignKey(
+        Teacher, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="lessons", help_text="Who taught it, if not the usual teacher.",
+    )
+    date = models.DateField()
+    period = models.CharField(max_length=32)
+    title = models.CharField(max_length=256, blank=True, default="")
+
+    plan = models.TextField(
+        blank=True, default="",
+        help_text="What will be taught, prepared in advance and reviewed by the head.",
+    )
+    plan_format = models.CharField(
+        max_length=16, choices=TextFormat.choices, default=TextFormat.MARKDOWN
+    )
+    log = models.TextField(
+        blank=True, default="",
+        help_text="Written after the lesson: what was actually covered, and anything "
+                  "the class needs.",
+    )
+    log_format = models.CharField(
+        max_length=16, choices=TextFormat.choices, default=TextFormat.MARKDOWN
+    )
+    date_taught = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Set when the teacher logs the lesson. Empty means it was never "
+                  "written up — which is what the compliance view looks for.",
+    )
+
+    # How long the class actually took. The teacher starts a timer when
+    # they begin, pauses it if they break off, and stops at the end.
+    # Two fields carry it: the seconds banked so far, and when the current
+    # run began. Running means `timer_started_at` is set.
+    #
+    # The point is not surveillance. A topic that repeatedly overruns is
+    # the single most useful thing to know when planning next year, and
+    # nobody can reconstruct it from memory in June.
+    teaching_seconds = models.PositiveIntegerField(
+        default=0, help_text="Time actually spent teaching, in seconds.",
+    )
+    timer_started_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Set while the timer runs; cleared when paused or stopped.",
+    )
+    timer_status = models.CharField(
+        max_length=8, choices=TimerStatus.choices, default=TimerStatus.IDLE,
+        help_text="Recorded rather than guessed. Inferring it from the other "
+                  "fields made a pause after an ended class read as ended, so "
+                  "the teacher was offered Start instead of Resume.",
+    )
+
+    status = models.CharField(
+        max_length=16, choices=LessonStatus.choices, default=LessonStatus.DRAFT
+    )
+    date_submitted = models.DateTimeField(null=True, blank=True)
+    submitted_by = models.ForeignKey(
+        USER, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="lessons_submitted",
+    )
+    date_reviewed = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        USER, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="lessons_reviewed",
+    )
+    review_comment = models.TextField(
+        blank=True, default="",
+        help_text="Why it was returned. The point of review is improving the "
+                  "lesson, not only gating it.",
+    )
+
+    attachments = GenericRelation("AttachmentLink", related_query_name="lesson")
+
+    class Meta(AuditModel.Meta):
+        db_table = "lesson"
+        ordering = ["-date", "period"]
+        indexes = [
+            models.Index(fields=["date"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["teacher", "date"]),
+        ]
+        constraints = [
+            unique_active(["syllabus", "date", "period"], "lesson_uix"),
+        ]
+
+    def __str__(self):
+        return f"{self.syllabus} · {self.date} {self.period}"
+
+    @property
+    def is_approved(self):
+        return self.status == LessonStatus.APPROVED
+
+    @property
+    def is_logged(self):
+        """Whether the teacher wrote the lesson up after teaching it."""
+        return bool(self.date_taught)
+
+    # -- the class timer ----------------------------------------------
+    @property
+    def timer_running(self):
+        return self.timer_status == TimerStatus.RUNNING and self.timer_started_at
+
+    @property
+    def elapsed_seconds(self):
+        """Banked seconds, plus the run in progress if there is one."""
+        total = self.teaching_seconds
+        if self.timer_started_at:
+            total += int((timezone.now() - self.timer_started_at).total_seconds())
+        return total
+
+    @property
+    def elapsed_display(self):
+        seconds = self.elapsed_seconds
+        return f"{seconds // 3600:d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+
+    def timer_start(self):
+        """Start, resume, or pick the class up again after it ended."""
+        if not self.timer_started_at:
+            self.timer_started_at = timezone.now()
+        self.timer_status = TimerStatus.RUNNING
+        self.save(update_fields=["timer_started_at", "timer_status", "date_changed"])
+        return self
+
+    def timer_pause(self, status=None):
+        """Bank the run in progress. Starting again adds to it."""
+        if self.timer_started_at:
+            self.teaching_seconds = self.elapsed_seconds
+            self.timer_started_at = None
+        self.timer_status = status or TimerStatus.PAUSED
+        self.save(update_fields=["teaching_seconds", "timer_started_at",
+                                 "timer_status", "date_changed"])
+        return self
+
+    def timer_stop(self):
+        """End of the class: bank the time and mark the lesson taught."""
+        self.timer_pause(status=TimerStatus.ENDED)
+        if not self.date_taught:
+            self.date_taught = timezone.now()
+            self.save(update_fields=["date_taught", "date_changed"])
+        return self
+
+    @property
+    def topic_counts(self):
+        """{done, total} across the topics this lesson planned to cover."""
+        planned = [t for t in self.topics.all() if t.planned and not t.voided]
+        return {"done": len([t for t in planned if t.covered]), "total": len(planned)}
+
+    def unfinished_topics(self):
+        return [
+            t.topic for t in self.topics.all()
+            if t.planned and not t.voided and not t.covered
+        ]
+
+    def next_lesson(self):
+        """The next class for this syllabus, which is where leftovers go."""
+        return (
+            Lesson.objects
+            .filter(syllabus=self.syllabus, voided=False, date__gt=self.date)
+            .order_by("date", "period")
+            .first()
+        )
+
+    def carry_forward(self):
+        """
+        Put anything unfinished onto the next lesson.
+
+        This is the whole reason a teacher bothers to log: the system
+        remembers where they stopped and puts it in front of them next
+        time, rather than asking them to remember.
+        """
+        following = self.next_lesson()
+        if following is None:
+            return []
+        moved = []
+        for topic in self.unfinished_topics():
+            entry, created = LessonTopic.objects.get_or_create(
+                lesson=following, topic=topic, voided=False,
+                defaults={"planned": True, "carried": True},
+            )
+            if created:
+                moved.append(topic)
+        return moved
+
+    def submit(self, user=None):
+        """Teacher hands the lesson to the head for review."""
+        self.status = LessonStatus.SUBMITTED
+        self.date_submitted = timezone.now()
+        self.submitted_by = user
+        self.save()
+        return self
+
+    def approve(self, user=None):
+        """Head signs it off. From here it is course content."""
+        self.status = LessonStatus.APPROVED
+        self.date_reviewed = timezone.now()
+        self.reviewed_by = user
+        self.review_comment = ""
+        self.save()
+        return self
+
+    def return_for_changes(self, user=None, comment=""):
+        """Send it back to the teacher, with a reason."""
+        self.status = LessonStatus.RETURNED
+        self.date_reviewed = timezone.now()
+        self.reviewed_by = user
+        self.review_comment = comment
+        self.save()
+        return self
+
+
+class LessonTopic(AuditModel):
+    """
+    A topic a lesson plans to cover, and whether it actually was.
+
+    `covered` is a plain yes or no, deliberately. A percentage would be a
+    number the teacher invents under time pressure at the end of a class,
+    and one teacher's 70% is not another's — it reads like data without
+    being comparable. Done or not finished is answerable in two seconds
+    and means the same thing to everyone.
+
+    Nothing is lost by that, because the questions worth asking are
+    answered by counting rather than by estimating: how many lessons a
+    topic took, and how many minutes, both come from facts the system
+    already holds. `Topic.teaching_summary` does that arithmetic.
+
+    An unfinished topic is carried onto the next lesson automatically, so
+    logging helps the teacher rather than only reporting on them.
+    """
+
+    lesson = models.ForeignKey(Lesson, on_delete=models.PROTECT, related_name="topics")
+    topic = models.ForeignKey(Topic, on_delete=models.PROTECT, related_name="lessons")
+    planned = models.BooleanField(default=True)
+    covered = models.BooleanField(
+        default=False, help_text="Ticked when the lesson is logged after teaching."
+    )
+    note = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="Why it was left short, if it was. Never analysed — it is "
+                  "for the person reading it next week.",
+    )
+    carried = models.BooleanField(
+        default=False,
+        help_text="Put here automatically because the last lesson did not "
+                  "finish it. The teacher did not have to carry it forward.",
+    )
+    sort_order = models.IntegerField(default=0, verbose_name="sort")
+
+    #: Lecture notes for this topic. A topic with its own material shows
+    #: it here; otherwise the lesson's own materials stand for the class.
+    attachments = GenericRelation("AttachmentLink", related_query_name="lesson_topic")
+
+    class Meta(AuditModel.Meta):
+        db_table = "lesson_topic"
+        ordering = ["lesson", "sort_order"]
+        constraints = [
+            unique_active(["lesson", "topic"], "lesson_topic_uix"),
+        ]
+
+    def __str__(self):
+        return f"{self.lesson} · {self.topic}"
+
+    def materials(self):
+        return [
+            link.attachment for link in self.attachments.all()
+            if not link.voided and link.attachment_id
+        ]
+
+
+# ---------------------------------------------------------------------
+# Handouts and what students hand back
+# ---------------------------------------------------------------------
+class LectureItem(AuditModel):
+    """
+    One row of a lesson's lecture table: where in the book, and the file.
+
+    Deliberately plain text rather than links to `Topic`. A teacher adding
+    material at 7.40am should be able to type "Unit 3, Chapter 2" without
+    anything having been catalogued first, and different subjects number
+    their books differently. `LessonTopic` still carries the catalogued
+    topics for logging and carrying forward — these two answer different
+    questions and are kept apart on purpose.
+
+    Every field is optional, including the file. A row with only a chapter
+    written on it is a legitimate note to self.
+
+    There is no sub-topic column: the log's "parts done" checklist already
+    answers that question, and asking twice is how a form starts feeling
+    like paperwork.
+    """
+
+    lesson = models.ForeignKey(
+        Lesson, on_delete=models.PROTECT, related_name="lecture_items"
+    )
+    unit = models.CharField(max_length=128, blank=True, default="")
+    chapter = models.CharField(max_length=128, blank=True, default="")
+    topic = models.CharField(max_length=255, blank=True, default="")
+    attachment = models.ForeignKey(
+        "Attachment", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="lecture_items",
+    )
+    sort_order = models.IntegerField(default=0, verbose_name="sort")
+
+    class Meta(AuditModel.Meta):
+        db_table = "lecture_item"
+        ordering = ["lesson", "sort_order", "id"]
+
+    def __str__(self):
+        parts = [p for p in (self.unit, self.chapter, self.topic) if p]
+        return " · ".join(parts) or (str(self.attachment) if self.attachment else "—")
+
+    @property
+    def is_empty(self):
+        return not any((self.unit, self.chapter, self.topic, self.attachment_id))
+
+
+class Handout(AuditModel):
+    """
+    A sheet given out in class, and the work handed back from it.
+
+    Deliberately lighter than the exam machinery. A teacher writing
+    tonight's homework should attach a sheet and hand it out, not build a
+    versioned question paper — that route exists, and is right for a
+    formal exam, and wrong for a Tuesday.
+
+    Printed copies are identical, so nothing on the page identifies the
+    student. `code` identifies the *handout*, and a submission carries its
+    own code stamped with the moment it arrived. Together they say which
+    sheet, whose work, and which attempt.
+
+    A handout hangs off a syllabus rather than a single lesson, and its
+    lessons are listed in `HandoutLesson`, so one sheet may cover a week
+    of classes or a lesson may carry several sheets.
+    """
+
+    syllabus = models.ForeignKey(
+        Syllabus, on_delete=models.PROTECT, related_name="handouts"
+    )
+    code = models.CharField(
+        max_length=64, editable=False,
+        help_text="Set on first save: subject, grade, year and a running "
+                  "number, e.g. ENG-E1-2026-H007. Printed on the sheet and "
+                  "quoted by every submission.",
+    )
+    topic = models.ForeignKey(
+        Topic, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="handouts",
+        help_text="The topic it belongs to, so it shows beside that topic on "
+                  "the teacher's day. Optional.",
+    )
+    title = models.CharField(max_length=256)
+    # Where in the book it comes from, typed rather than catalogued — the
+    # same reasoning as LectureItem. `topic` above is the catalogued link
+    # and stays optional; these two are what a teacher actually writes.
+    chapter = models.CharField(max_length=128, blank=True, default="")
+    topic_text = models.CharField(
+        max_length=255, blank=True, default="", verbose_name="topic (as written)",
+    )
+    instructions = models.TextField(blank=True, default="")
+    instructions_format = models.CharField(
+        max_length=16, choices=TextFormat.choices, default=TextFormat.MARKDOWN
+    )
+
+    is_assignment = models.BooleanField(
+        default=True,
+        help_text="Students hand work back from it. Clear it for a sheet that "
+                  "is only to read.",
+    )
+    # Three dates, because they answer three different questions. The
+    # due date is when work is expected; the cut-off is when the door
+    # actually shuts. Between them, work is accepted and marked late —
+    # which is a fact worth keeping rather than a door slammed. Leave the
+    # cut-off empty to accept late work indefinitely; set it equal to the
+    # due date for a hard stop. (Moodle's model, and it has held up.)
+    open_from = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Students see it from this moment. Empty means as soon as "
+                  "it is posted.",
+    )
+    due_date = models.DateField(
+        null=True, blank=True, help_text="When the work is expected.",
+    )
+    allow_late = models.BooleanField(
+        default=False,
+        help_text="Keep taking work after the due date, marked late. Off "
+                  "means the due date is the close.",
+    )
+    cutoff_at = models.DateTimeField(
+        null=True, blank=True, verbose_name="late submissions until",
+        help_text="Only used when late submissions are allowed. Empty then "
+                  "means late work is taken indefinitely.",
+    )
+    max_marks = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True
+    )
+    max_rounds = models.PositiveSmallIntegerField(
+        default=3,
+        help_text="Submissions allowed, counting the first. Three means one "
+                  "attempt and two redoes; after that it goes to the teacher.",
+    )
+
+    status = models.CharField(
+        max_length=16, choices=HandoutStatus.choices, default=HandoutStatus.DRAFT
+    )
+    date_activated = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When it was handed out. Until then students cannot see it.",
+    )
+    activated_by = models.ForeignKey(
+        USER, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="handouts_activated",
+    )
+
+    #: The sheet itself, and the answer scheme, both attach here. The link's
+    #: `role` separates them: "handout" is given out, "scheme" never is.
+    attachments = GenericRelation("AttachmentLink", related_query_name="handout")
+
+    class Meta(AuditModel.Meta):
+        db_table = "handout"
+        ordering = ["-date_created"]
+        indexes = [models.Index(fields=["status"]), models.Index(fields=["due_date"])]
+        constraints = [unique_active(["code"], "handout_code_uix")]
+
+    def __str__(self):
+        return f"{self.code} · {self.title}"
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = self._next_code()
+        return super().save(*args, **kwargs)
+
+    def _next_code(self):
+        """`<SUBJECT>-<GRADE>-<YEAR>-H<nnn>`, counting within the syllabus."""
+        syllabus = self.syllabus
+        prefix = "{}-{}-{}-H".format(
+            syllabus.subject.short_name,
+            syllabus.grade.short_name,
+            syllabus.academic_year,
+        )
+        taken = (
+            Handout.all_objects
+            .filter(syllabus=syllabus, code__startswith=prefix)
+            .values_list("code", flat=True)
+        )
+        highest = 0
+        for code in taken:
+            tail = code[len(prefix):]
+            if tail.isdigit():
+                highest = max(highest, int(tail))
+        return f"{prefix}{highest + 1:03d}"
+
+    # -- handing it out -------------------------------------------------
+    def activate(self, user=None):
+        """Hand it out. From here the class can see it and submit against it."""
+        self.status = HandoutStatus.ACTIVE
+        self.date_activated = timezone.now()
+        self.activated_by = user
+        self.save()
+        return self
+
+    def close(self, user=None):
+        self.status = HandoutStatus.CLOSED
+        self.save()
+        return self
+
+    @property
+    def is_open(self):
+        return self.status == HandoutStatus.ACTIVE
+
+    @property
+    def has_submissions(self):
+        return Submission.objects.filter(handout=self, voided=False).exists()
+
+    @property
+    def can_unpost(self):
+        """
+        Only while nobody has handed anything in.
+
+        Unposting after that hides work a student has already done, and a
+        student who cannot see their own submission assumes it was lost.
+        Canvas refuses outright for the same reason; so do we.
+        """
+        return not self.has_submissions
+
+    @property
+    def due_moment(self):
+        """The due date as a moment: the end of that day."""
+        if not self.due_date:
+            return None
+        return timezone.make_aware(
+            datetime.combine(self.due_date, datetime_time(23, 59, 59)),
+            timezone.get_current_timezone(),
+        )
+
+    def deadline_for(self, enrolment=None):
+        """
+        When this student's door shuts, and when their work counts as late.
+
+        An extension moves both for that student only. Everything else —
+        the sheet, the code, the marks — stays shared, which is what keeps
+        one column in the gradebook instead of two.
+        """
+        due = self.due_moment
+        # Without late submissions the due date is the close. With them,
+        # the close is whenever the teacher said — or never, if they left
+        # it empty.
+        cutoff = self.cutoff_at if self.allow_late else due
+        if enrolment is not None:
+            extension = HandoutExtension.objects.filter(
+                handout=self, enrolment=enrolment, voided=False
+            ).order_by("-extended_to").first()
+            if extension:
+                due = extension.extended_to
+                if cutoff is None or extension.extended_to > cutoff:
+                    cutoff = extension.extended_to
+        return {"due": due, "cutoff": cutoff}
+
+    def accepts_submission(self, enrolment=None, at=None):
+        """Whether work may be handed in now, and why not if it may not."""
+        at = at or timezone.now()
+        if self.status != HandoutStatus.ACTIVE:
+            return False, "This handout has not been posted."
+        if self.open_from and at < self.open_from:
+            return False, "This handout is not open yet."
+        dates = self.deadline_for(enrolment)
+        if dates["cutoff"] and at > dates["cutoff"]:
+            return False, "The closing time for this handout has passed."
+        return True, ""
+
+    @property
+    def is_past_due(self):
+        due = self.due_moment
+        return bool(due and timezone.now() > due)
+
+    @property
+    def late_window_open(self):
+        """Past the due date, but still taking work."""
+        if not (self.allow_late and self.is_past_due):
+            return False
+        return not self.cutoff_at or timezone.now() <= self.cutoff_at
+
+    def lateness(self, enrolment=None, at=None):
+        """Minutes past the due moment, or 0 if it is on time."""
+        at = at or timezone.now()
+        due = self.deadline_for(enrolment)["due"]
+        if not due or at <= due:
+            return 0
+        return int((at - due).total_seconds() // 60)
+
+    @property
+    def current_sheet(self):
+        return self.sheets.filter(voided=False, replaced_on__isnull=True).first()
+
+    @property
+    def sheet_version_no(self):
+        sheet = self.current_sheet
+        return sheet.version_no if sheet else 0
+
+    def add_sheet(self, attachment, note=""):
+        """
+        Make this file the sheet, as the next version.
+
+        The one it replaces is kept and stamped, so a submission that
+        answered version 1 still points at the paper it was actually given.
+        """
+        current = self.current_sheet
+        if current and current.attachment_id == attachment.pk:
+            return current
+        if current:
+            current.replaced_on = timezone.now()
+            current.save(update_fields=["replaced_on", "date_changed"])
+        last = (
+            HandoutSheet.all_objects.filter(handout=self)
+            .order_by("-version_no").first()
+        )
+        return HandoutSheet.objects.create(
+            handout=self, attachment=attachment,
+            version_no=(last.version_no + 1) if last else 1,
+            note=note,
+        )
+
+    def files(self, role="handout"):
+        """Attachments with one role — the sheet, or the answer scheme."""
+        return [
+            link.attachment for link in self.attachments.all()
+            if not link.voided and link.role == role and link.attachment_id
+        ]
+
+    def enrolments(self):
+        """Everyone the handout is for: the grade's live enrolments this year."""
+        return Enrolment.objects.filter(
+            grade=self.syllabus.grade,
+            academic_year=self.syllabus.academic_year,
+            voided=False,
+        ).select_related("student")
+
+    def to_check(self):
+        """Work handed in and not yet checked."""
+        return Submission.objects.filter(
+            handout=self, voided=False, state=SubmissionState.SUBMITTED
+        )
+
+    def completion(self):
+        """{submitted, outstanding, total} — the class's progress on it."""
+        enrolments = list(self.enrolments())
+        submitted = set(
+            Submission.objects
+            .filter(handout=self, voided=False)
+            .values_list("enrolment_id", flat=True)
+        )
+        return {
+            "total": len(enrolments),
+            "submitted": len([e for e in enrolments if e.id in submitted]),
+            "outstanding": len([e for e in enrolments if e.id not in submitted]),
+        }
+
+
+class HandoutLesson(AuditModel):
+    """
+    Which lessons a handout belongs to.
+
+    Usually one. A sheet covering a week of classes lists several, and a
+    lesson carrying both classwork and homework appears in two handouts.
+    """
+
+    handout = models.ForeignKey(Handout, on_delete=models.PROTECT, related_name="lessons")
+    lesson = models.ForeignKey(Lesson, on_delete=models.PROTECT, related_name="handouts")
+    sort_order = models.IntegerField(default=0, verbose_name="sort")
+
+    class Meta(AuditModel.Meta):
+        db_table = "handout_lesson"
+        ordering = ["handout", "sort_order"]
+        constraints = [unique_active(["handout", "lesson"], "handout_lesson_uix")]
+
+    def __str__(self):
+        return f"{self.handout.code} · {self.lesson}"
+
+
+class HandoutSheet(AuditModel):
+    """
+    One version of the sheet students were given.
+
+    A teacher will find a typo at eight in the evening, after half the
+    class has handed in. Blocking the edit means deleting and re-posting,
+    which strands everyone who already submitted; editing in place means
+    a mark refers to a sheet that no longer exists. So a replacement
+    becomes version 2, the earlier one stays exactly as it was issued, and
+    every submission records which version it answered.
+
+    The same reasoning as `PaperVersion`, at a lighter weight: no locking
+    workflow, because a handout is posted rather than approved.
+    """
+
+    handout = models.ForeignKey(
+        Handout, on_delete=models.PROTECT, related_name="sheets"
+    )
+    version_no = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    attachment = models.ForeignKey(
+        "Attachment", on_delete=models.PROTECT, related_name="handout_sheets"
+    )
+    note = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="What changed, for whoever reads this later.",
+    )
+    replaced_on = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When a later version took over. Empty on the current one.",
+    )
+
+    class Meta(AuditModel.Meta):
+        db_table = "handout_sheet"
+        ordering = ["handout", "-version_no"]
+        constraints = [
+            unique_active(["handout", "version_no"], "handout_sheet_uix"),
+        ]
+
+    def __str__(self):
+        return f"{self.handout.code} v{self.version_no}"
+
+    @property
+    def is_current(self):
+        return self.replaced_on is None
+
+
+class HandoutExtension(AuditModel):
+    """
+    A later deadline for one student on one handout.
+
+    Not a second handout: the same sheet, the same code, the same marks
+    column — only the date moves, and only for this student. Issuing a
+    fresh handout instead would double-count the work and split the
+    record in two, which is why every established system does it this way.
+    """
+
+    handout = models.ForeignKey(
+        Handout, on_delete=models.PROTECT, related_name="extensions"
+    )
+    enrolment = models.ForeignKey(
+        Enrolment, on_delete=models.PROTECT, related_name="handout_extensions"
+    )
+    extended_to = models.DateTimeField(help_text="Their new deadline.")
+    reason = models.CharField(max_length=255, blank=True, default="")
+    granted_by = models.ForeignKey(
+        USER, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="extensions_granted",
+    )
+
+    class Meta(AuditModel.Meta):
+        db_table = "handout_extension"
+        ordering = ["handout", "enrolment"]
+        constraints = [
+            unique_active(["handout", "enrolment"], "handout_extension_uix"),
+        ]
+
+    def __str__(self):
+        return f"{self.handout.code} · {self.enrolment.student} · {self.extended_to:%d %b %H:%M}"
+
+
+class Submission(AuditModel):
+    """
+    One student's work handed back for one handout, in one round.
+
+    `code` is stamped with the moment it arrived, so it identifies this
+    hand-in and no other: `<handout code>-<admission no>-<timestamp>`.
+    Printed copies are identical, so this is what tells the two apart.
+
+    A round is one pass through marking. Round 1 is the first hand-in;
+    a redo of the questions marked wrong is round 2, and so on up to the
+    handout's `max_rounds`. Nothing is overwritten — each round is its own
+    row, and the marks are read across all of them.
+    """
+
+    handout = models.ForeignKey(Handout, on_delete=models.PROTECT, related_name="submissions")
+    enrolment = models.ForeignKey(
+        Enrolment, on_delete=models.PROTECT, related_name="submissions",
+        help_text="Whose work, and in which grade and year — so the record "
+                  "stays true after they move up.",
+    )
+    code = models.CharField(
+        max_length=128, editable=False,
+        help_text="Stamped with the moment it arrived. Identifies this "
+                  "hand-in and no other.",
+    )
+    round_no = models.PositiveSmallIntegerField(
+        default=1,
+        help_text="1 is the first hand-in; 2 and 3 are redoes of the "
+                  "questions marked wrong. 'Right first time' is worth "
+                  "keeping, so this is never overwritten.",
+    )
+    time_submitted = models.DateTimeField(default=timezone.now)
+    state = models.CharField(
+        max_length=16, choices=SubmissionState.choices,
+        default=SubmissionState.SUBMITTED,
+    )
+    awarded_marks = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text="This round's marks. The running total across rounds is "
+                  "worked out, not stored.",
+    )
+    sheet_version = models.PositiveIntegerField(
+        default=0,
+        help_text="Which version of the sheet this answered. 0 for work "
+                  "handed in before sheets were versioned.",
+    )
+    is_late = models.BooleanField(
+        default=False,
+        help_text="Handed in after the due moment. Late is recorded, not "
+                  "refused — the cut-off is what refuses.",
+    )
+    minutes_late = models.PositiveIntegerField(default=0)
+    feedback = models.TextField(blank=True, default="")
+    marked_by = models.ForeignKey(
+        USER, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="submissions_marked",
+        help_text="The examiner who checked it.",
+    )
+    date_marked = models.DateTimeField(null=True, blank=True)
+
+    # A redo happens only when a teacher asks for one on this particular
+    # piece of work. Nothing comes back automatically: most work is
+    # checked, returned and finished with.
+    redo_requested_by = models.ForeignKey(
+        USER, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="redos_requested",
+    )
+    date_redo_requested = models.DateTimeField(null=True, blank=True)
+    redo_reason = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="What the student is being asked to put right.",
+    )
+
+    attachments = GenericRelation("AttachmentLink", related_query_name="submission")
+
+    class Meta(AuditModel.Meta):
+        db_table = "submission"
+        ordering = ["-time_submitted"]
+        indexes = [
+            models.Index(fields=["state"]),
+            models.Index(fields=["handout", "enrolment"]),
+        ]
+        constraints = [
+            unique_active(
+                ["handout", "enrolment", "round_no"], "submission_round_uix"
+            ),
+        ]
+
+    def __str__(self):
+        return self.code
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            stamp = timezone.localtime(self.time_submitted or timezone.now())
+            self.code = "{}-{}-{}".format(
+                self.handout.code,
+                self.enrolment.student.admission_no,
+                stamp.strftime("%Y%m%d%H%M%S"),
+            )
+        return super().save(*args, **kwargs)
+
+    @property
+    def student(self):
+        return self.enrolment.student
+
+    @property
+    def is_final_round(self):
+        return self.round_no >= self.handout.max_rounds
+
+    @property
+    def is_checked(self):
+        return self.state in (
+            SubmissionState.MARKED, SubmissionState.ACCEPTED,
+            SubmissionState.RETURNED,
+        )
+
+    @property
+    def awaits_redo(self):
+        """The teacher asked for this one to be done again."""
+        return self.state == SubmissionState.RETURNED
+
+    def work_files(self):
+        """What the student handed in."""
+        return [
+            link.attachment for link in self.attachments.all()
+            if not link.voided and link.role == "work" and link.attachment_id
+        ]
+
+    def checked_files(self):
+        """
+        What the examiner handed back.
+
+        The same file the student sees, the teacher sees and — later — a
+        guardian sees. One upload, several audiences, no copies.
+        """
+        return [
+            link.attachment for link in self.attachments.all()
+            if not link.voided and link.role == "checked" and link.attachment_id
+        ]
+
+    def mark(self, user=None, marks=None, feedback=""):
+        self.awarded_marks = marks
+        self.feedback = feedback
+        self.marked_by = user
+        self.date_marked = timezone.now()
+        self.state = SubmissionState.MARKED
+        self.save()
+        return self
+
+    def request_redo(self, user=None, reason=""):
+        """A teacher asks this student to do this piece again."""
+        self.state = SubmissionState.RETURNED
+        self.redo_requested_by = user
+        self.date_redo_requested = timezone.now()
+        self.redo_reason = reason
+        self.save()
+        return self
+
+
 class Attachment(AuditModel):
     """A stored file: image, PDF, audio, video or anything else."""
 

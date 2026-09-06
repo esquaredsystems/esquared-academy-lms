@@ -25,6 +25,8 @@ The roles:
     Non-academic Staff    attendance, and the student and grade lists it needs
     Student               their own record, results and attendance
     Guardian              read-only, and only for the students linked to them
+                          — their ward's handed-in work and its checked
+                          output included
     Guest                 read-only list of grades, subjects and topics
 
 One person may hold several roles; that is the normal case in a small
@@ -86,6 +88,11 @@ STAFF_ROLES = [
 #: paper and approving it are separate acts; a Paper Setter drafts, and
 #: someone with academic authority freezes it.
 PAPER_APPROVAL_ROLES = [ADMIN, ACADEMIC_ADMIN, HEAD_OF_DEPARTMENT]
+
+#: Roles allowed to approve a lesson. Course content is built up as the
+#: year runs, and a teacher may not put their own material live: they
+#: draft and submit, and academic authority publishes.
+LESSON_APPROVAL_ROLES = [ADMIN, ACADEMIC_ADMIN, HEAD_OF_DEPARTMENT]
 
 #: Everything a Guest may read. Nothing else is visible to them at all.
 GUEST_VISIBLE_MODELS = {"grade", "subject", "topic"}
@@ -158,6 +165,13 @@ def _scope_to_students(model_name, queryset, student_ids):
         "evaluation": "answer__attempt__student_id__in",
         "attendancerecord": "enrolment__student_id__in",
         "guardianlink": "student_id__in",
+        # Handed-in work and its checked output. A student sees their own;
+        # a guardian sees their ward's and nobody else's. Missing from this
+        # table, a model falls through to `queryset.none()` — safe, but it
+        # reads as a bug, so anything a student or guardian should see
+        # belongs here explicitly.
+        "submission": "enrolment__student_id__in",
+        "handoutextension": "enrolment__student_id__in",
     }
     lookup = paths.get(model_name)
     if lookup is None:
@@ -190,8 +204,16 @@ def scope_queryset(user, queryset):
         student = _student_for(user)
         if student is None:
             return queryset.none()
+        if model_name == "lesson":
+            # Course content is built up as the year runs and nothing
+            # reaches a student before a head has approved it.
+            return queryset.filter(status="approved")
         if model_name in {"grade", "subject", "topic", "syllabus", "syllabustopic",
-                          "questionpaper", "paperassignment", "attachment"}:
+                          "timetableslot", "lessontopic", "lectureitem",
+                          "questionpaper", "paperassignment", "attachment",
+                          # The sheet is set for the whole class, so it is
+                          # not narrowed. Whose *work* it is, is.
+                          "handout", "handoutlesson", "handoutsheet"}:
             return queryset
         return _scope_to_students(model_name, queryset, [student.id])
 
@@ -199,7 +221,11 @@ def scope_queryset(user, queryset):
         wards = _ward_ids(user)
         if not wards:
             return queryset.none()
-        if model_name in {"grade", "subject", "topic", "syllabus", "syllabustopic"}:
+        if model_name == "lesson":
+            return queryset.filter(status="approved")
+        if model_name in {"grade", "subject", "topic", "syllabus", "syllabustopic",
+                          "timetableslot", "lessontopic", "lectureitem",
+                          "handout", "handoutlesson", "handoutsheet"}:
             return queryset
         return _scope_to_students(model_name, queryset, wards)
 
@@ -219,3 +245,18 @@ def may_approve_papers(user):
     if user.is_superuser:
         return True
     return has_role(user, *PAPER_APPROVAL_ROLES)
+
+
+def may_approve_lessons(user):
+    """
+    Whether `user` may approve or return a lesson.
+
+    A teacher prepares their week and submits it; approving is a separate
+    act, held by whoever carries academic authority. Teachers cannot put
+    course content live unreviewed.
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    return has_role(user, *LESSON_APPROVAL_ROLES)

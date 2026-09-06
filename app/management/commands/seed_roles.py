@@ -32,6 +32,9 @@ ATTENDANCE = ["attendancesession", "attendancerecord"]
 FILES = ["attachment", "attachmentlink", "uploadsession"]
 PEOPLE = ["student", "teacher", "enrolment", "studentsubject", "teachingassignment",
           "studentcohort", "cohortmembership", "guardianlink"]
+LESSONS = ["timetableslot", "lesson", "lessontopic", "lectureitem"]
+HANDOUTS = ["handout", "handoutlesson", "submission",
+            "handoutextension", "handoutsheet"]
 
 #: role -> {model_name: actions}
 ROLE_PERMISSIONS = {
@@ -41,6 +44,8 @@ ROLE_PERMISSIONS = {
     # Permissions and passwords belong to IT Administrator; both sit under
     # a superuser Owner login used sparingly.
     access.ACADEMIC_ADMIN: {
+        **{m: ALL for m in LESSONS},
+        **{m: ALL for m in HANDOUTS},
         **{m: ALL for m in CURRICULUM},
         **{m: ALL for m in QUESTIONS},
         **{m: ALL for m in PAPERS},
@@ -63,6 +68,8 @@ ROLE_PERMISSIONS = {
     # Academic authority. The one role that may lock a paper — see
     # `access.PAPER_APPROVAL_ROLES` and `may_approve_papers`.
     access.HEAD_OF_DEPARTMENT: {
+        # Reviews and approves lessons — see access.may_approve_lessons.
+        **{m: ALL for m in LESSONS},
         **{m: ALL for m in CURRICULUM},
         **{m: ALL for m in QUESTIONS},
         **{m: ALL for m in PAPERS},
@@ -82,27 +89,37 @@ ROLE_PERMISSIONS = {
     # Teaching and the pastoral side of it. Paper setting and marking have
     # moved to the two roles below; a teacher who does those jobs is given
     # those roles as well.
+    # Teaching, and the pastoral side of it. Deliberately narrow: a
+    # teacher's screen should hold their lessons and their students and
+    # very little else. Paper setting and marking are separate roles; the
+    # internals of papers (items, versions) and of guardian access are
+    # not a teacher's business and were removed on 5 September 2026 after
+    # seeing how much noise they added to the teacher's dashboard.
     access.TEACHING_STAFF: {
+        "timetableslot": READ,
+        "lesson": EDIT,
+        "lessontopic": ALL,
+        # Sets the work and marks what comes back.
+        "handout": ALL,
+        "handoutlesson": ALL,
+        "submission": EDIT,
         **{m: READ for m in CURRICULUM},
         **{m: ALL for m in ATTENDANCE},
         **{m: EDIT for m in FILES},
-        "topicresult": EDIT,
+        # What their class is set, and how their students did on it —
+        # but not the machinery behind it.
+        "paperassignment": READ,
         "attempt": READ,
         "answer": READ,
         "evaluation": READ,
-        "question": READ,
-        "questionpaper": READ,
-        "paperversion": READ,
-        "paperitem": READ,
-        "paperassignment": READ,
+        "topicresult": EDIT,
+        # Their students.
         "student": EDIT,
         "enrolment": EDIT,
         "studentsubject": EDIT,
         "studentcohort": ALL,
         "cohortmembership": ALL,
         "teachingassignment": READ,
-        "teacher": READ,
-        "guardianlink": READ,
     },
 
     # Composes questions and drafts papers. No student data at all, so a
@@ -122,6 +139,13 @@ ROLE_PERMISSIONS = {
     # paper or the questions, so a mark cannot be defended by rewriting
     # the question after the fact.
     access.MARKING_REVIEWER: {
+        "handout": READ,
+        "handoutsheet": READ,
+        "submission": EDIT,
+        # Uploading the checked version writes a file and links it.
+        "attachment": EDIT,
+        "attachmentlink": EDIT,
+        "uploadsession": EDIT,
         **{m: READ for m in CURRICULUM},
         **{m: READ for m in QUESTIONS},
         **{m: READ for m in PAPERS},
@@ -165,6 +189,10 @@ ROLE_PERMISSIONS = {
 
     # Students and guardians read; row scoping decides whose rows.
     access.STUDENT: {
+        **{m: READ for m in LESSONS},
+        "handout": READ,
+        "handoutlesson": READ,
+        "submission": ("view", "add"),   # handing work in writes a row
         **{m: READ for m in CURRICULUM},
         "student": READ,
         "enrolment": READ,
@@ -181,6 +209,9 @@ ROLE_PERMISSIONS = {
     },
 
     access.GUARDIAN: {
+        **{m: READ for m in LESSONS},
+        "handout": READ,
+        "submission": READ,
         **{m: READ for m in CURRICULUM},
         "student": READ,
         "enrolment": READ,

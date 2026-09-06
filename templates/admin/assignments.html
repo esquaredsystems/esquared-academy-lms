@@ -1,0 +1,88 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Assignments · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .as-head{margin:0 0 20px}
+  .as-head h1{margin:0 0 4px;font-size:26px}
+  .as-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  details.klass{background:var(--ac-card,#f9f4ed);border:1px solid var(--ac-line,#dcd3c4);
+    border-radius:14px;margin:0 0 12px;overflow:hidden}
+  details.klass>summary{cursor:pointer;padding:15px 18px;display:flex;
+    align-items:center;gap:12px;flex-wrap:wrap;list-style:none}
+  details.klass>summary::-webkit-details-marker{display:none}
+  details.klass>summary::before{content:"▸";color:var(--ac-ink-3,#645c50);
+    font-size:13px;transition:transform .12s}
+  details.klass[open]>summary::before{transform:rotate(90deg)}
+  details.klass>summary b{font-size:16px}
+  details.klass>summary .meta{font-size:11px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ac-ink-3,#645c50)}
+  details.klass>summary .flag{margin-left:auto;font-size:12px;font-weight:600;
+    color:#8a5a12}
+  table.as{width:100%;border-collapse:collapse;font-size:13px}
+  table.as th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);padding:8px 14px;
+    border-top:1px solid var(--ac-line,#dcd3c4);
+    border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.as td{padding:10px 14px;border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.as tr:last-child td{border-bottom:0}
+  table.as a{text-decoration:none;font-weight:600}
+  .badge{font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;font-weight:600}
+  .badge.posted{background:#dcefdc;color:#2f6b35}
+  .badge.closed{background:#eef1f4;color:#5a6673}
+  .badge.overridden{background:#fdf4e3;color:#8a5a12}
+  .badge.unposted{background:#eee7db;color:#645c50}
+  .n{font-variant-numeric:tabular-nums}
+  .warn{color:#8c2f2f;font-weight:600}
+  .empty{color:var(--ac-ink-3,#645c50);font-size:14px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="as-head">
+  <h1>Assignments</h1>
+  <div class="sub">{% if teacher %}{{ teacher }} · {% endif %}newest first, class by class</div>
+</div>
+
+{% for c in cards %}
+  <details class="klass">
+    <summary>
+      <b>{{ c.syllabus.grade }} · {{ c.syllabus.subject }}</b>
+      <span class="meta">{{ c.total }} assignment{{ c.total|pluralize }}</span>
+      {% if c.outstanding %}
+        <span class="flag">{{ c.outstanding }} still to hand in</span>
+      {% endif %}
+    </summary>
+
+    <table class="as">
+      <tr>
+        <th>Code</th><th>Assignment</th><th>Due</th><th>Status</th>
+        <th>Handed in</th><th>Late</th>
+      </tr>
+      {% for r in c.rows %}
+        <tr>
+          <td><a href="{{ r.url }}">{{ r.handout.code }}</a></td>
+          <td>{{ r.handout.topic_text|default:r.handout.title }}</td>
+          <td>{% if r.handout.due_date %}{{ r.handout.due_date|date:"j M" }}{% else %}—{% endif %}</td>
+          <td><span class="badge {{ r.state }}">
+            {% if r.state == "posted" %}Posted
+            {% elif r.state == "overridden" %}Overridden
+            {% elif r.state == "unposted" %}Not posted
+            {% else %}Closed{% endif %}</span></td>
+          <td class="n">
+            {{ r.counts.submitted }} / {{ r.counts.total }}
+            {% if r.counts.outstanding and r.state != "unposted" %}
+              <span class="warn">({{ r.counts.outstanding }} missing)</span>
+            {% endif %}
+          </td>
+          <td class="n">{% if r.late_count %}{{ r.late_count }}{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  </details>
+{% empty %}
+  <p class="empty">No assignments set yet.</p>
+{% endfor %}
+
+<p style="margin-top:22px"><a href="{% url 'teacher-home' %}">← Home</a></p>
+{% endblock %}

@@ -1,0 +1,121 @@
+{% extends "admin/base_site.html" %}
+{% block title %}All lessons · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .br-head{margin:0 0 6px}
+  .br-head h1{margin:0;font-size:26px}
+  .trail{margin:0 0 20px;font-size:13px;color:var(--ac-ink-3,#645c50)}
+  .trail a{text-decoration:none}
+  h2.step{font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:22px 0 10px;
+    padding-bottom:5px;border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{display:inline-flex;flex-direction:column;gap:2px;padding:10px 16px;
+    border-radius:12px;text-decoration:none;border:1px solid var(--ac-line,#dcd3c4);
+    background:var(--ac-card,#f9f4ed);color:var(--ac-ink,#201e1d);min-width:130px}
+  .chip:hover{border-color:var(--ac-accent,#c67139)}
+  .chip.on{border-color:var(--ac-accent,#c67139);background:#f3ece0}
+  .chip b{font-size:14px}
+  .chip small{font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50)}
+  ul.plain{list-style:none;padding:0;margin:0}
+  ul.plain li{padding:9px 12px;border-bottom:1px solid var(--ac-line,#dcd3c4);font-size:14px}
+  ul.plain li a{text-decoration:none}
+  .meta{font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin-left:8px}
+  .empty{color:var(--ac-ink-3,#645c50);font-size:14px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="br-head"><h1>All lessons</h1></div>
+<p class="trail">
+  <a href="{% url 'browse' %}">Grades</a>
+  {% if grade %} › <a href="?grade={{ grade.pk }}">{{ grade }}</a>{% endif %}
+  {% if syllabus %} › <a href="?syllabus={{ syllabus.pk }}">{{ syllabus.subject }}</a>{% endif %}
+  {% if topic %} › {{ topic }}{% endif %}
+</p>
+
+<h2 class="step">Grades</h2>
+<div class="chips">
+  {% for g in grades %}
+    <a class="chip {% if grade and g.grade.pk == grade.pk %}on{% endif %}" href="?grade={{ g.grade.pk }}">
+      <b>{{ g.grade.short_name }}</b>
+      <small>{{ g.subjects }} subject{{ g.subjects|pluralize }} · {{ g.students }} student{{ g.students|pluralize }}</small>
+    </a>
+  {% empty %}
+    <span class="empty">No grades yet.</span>
+  {% endfor %}
+</div>
+
+{% if grade %}
+  <h2 class="step">Subjects in {{ grade }}</h2>
+  <div class="chips">
+    {% for s in subjects %}
+      <a class="chip {% if syllabus and s.pk == syllabus.pk %}on{% endif %}" href="?syllabus={{ s.pk }}">
+        <b>{{ s.subject.short_name }}</b>
+        <small>{{ s.subject }} · {{ s.academic_year }}</small>
+      </a>
+    {% endfor %}
+  </div>
+
+  <h2 class="step">Students in {{ grade }}</h2>
+  <p><a href="{% url 'admin:app_enrolment_changelist' %}?grade__id__exact={{ grade.pk }}">
+    Open the list of students in {{ grade }} →</a></p>
+{% endif %}
+
+{% if syllabus %}
+  <h2 class="step">Topics in {{ syllabus.subject }}</h2>
+  <div class="chips">
+    {% for t in topics %}
+      <a class="chip {% if topic and t.pk == topic.pk %}on{% endif %}"
+         href="?syllabus={{ syllabus.pk }}&topic={{ t.pk }}">
+        <b>{{ t.short_name }}</b>
+        <small>{{ t.full_name|truncatechars:34 }}</small>
+      </a>
+    {% empty %}
+      <span class="empty">No topics in this subject yet.</span>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if topic %}
+  {% if children %}
+    <h2 class="step">Sub-topics of {{ topic.short_name }}</h2>
+    <div class="chips">
+      {% for c in children %}
+        <a class="chip" href="?syllabus={{ syllabus.pk }}&topic={{ c.pk }}">
+          <b>{{ c.short_name }}</b><small>{{ c.full_name|truncatechars:34 }}</small>
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <h2 class="step">Lectures</h2>
+  <ul class="plain">
+    {% for l in lessons %}
+      <li>
+        <a href="{{ l.url }}">{{ l.lesson.date|date:"D j M Y" }} · period {{ l.lesson.period }}</a>
+        <span class="meta">{{ l.lesson.get_status_display }}</span>
+        {% if l.lesson.teaching_seconds %}<span class="meta">{{ l.lesson.elapsed_display }}</span>{% endif %}
+      </li>
+    {% empty %}
+      <li class="empty">No lessons have covered this topic yet.</li>
+    {% endfor %}
+  </ul>
+
+  <h2 class="step">Assignments</h2>
+  <ul class="plain">
+    {% for h in handouts %}
+      <li>
+        <a href="{{ h.url }}">{{ h.handout.title }}</a>
+        <span class="meta">{{ h.handout.code }}</span>
+        <span class="meta">{{ h.handout.get_status_display }}</span>
+        {% if h.handout.due_date %}<span class="meta">due {{ h.handout.due_date|date:"j M" }}</span>{% endif %}
+      </li>
+    {% empty %}
+      <li class="empty">No handouts on this topic yet.</li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,209 @@
+{% extends "admin/base_site.html" %}
+{% block title %}{{ handout.code }} · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .h-head{margin:0 0 22px}
+  .h-head h1{margin:0 0 4px;font-size:24px}
+  .h-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  .pill{display:inline-block;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 10px;border-radius:999px;margin-left:8px}
+  .pill.draft{background:#eee7db;color:#645c50}
+  .pill.active{background:#dcefdc;color:#2f6b35}
+  .pill.closed{background:#fbe0e0;color:#8c2f2f}
+  .cards{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 24px}
+  .card{background:var(--ac-card,#f9f4ed);border:1px solid var(--ac-line,#dcd3c4);
+    border-radius:14px;padding:16px 20px;min-width:150px}
+  .card b{display:block;font-size:26px;line-height:1.1}
+  .card span{font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 26px}
+  .row a,.row button{padding:9px 20px;border-radius:999px;border:0;cursor:pointer;
+    font-size:14px;text-decoration:none;background:var(--ac-accent,#c67139);color:#fff}
+  .row a.ghost,.row button.ghost{background:transparent;color:var(--ac-accent-text,#8c491a);
+    border:1px solid var(--ac-line-strong,#c0b6a5)}
+  table.roll{width:100%;border-collapse:collapse;font-size:14px}
+  table.roll th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);padding:8px 10px;border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.roll td{padding:10px;border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.roll small{display:block;font-size:11px;color:var(--ac-ink-3,#645c50)}
+  .pill{font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;font-weight:600}
+  .pill.ontime{background:#dcefdc;color:#2f6b35}
+  .pill.late{background:#fdf4e3;color:#8a5a12}
+  .na{color:var(--ac-ink-3,#645c50);font-size:12px}
+  form.redo{display:flex;gap:6px;align-items:center}
+  form.redo input[type=text]{padding:5px 10px;border-radius:8px;font-size:12px;
+    border:1px solid var(--ac-line,#dcd3c4);max-width:150px}
+  form.redo button{padding:5px 12px;border:0;border-radius:999px;cursor:pointer;
+    font-size:12px;background:transparent;color:var(--ac-accent-text,#8c491a);
+    border:1px solid var(--ac-line-strong,#c0b6a5)}
+  form.redo button:hover{border-color:var(--ac-accent,#c67139)}
+  .yes{color:#2f6b35;font-weight:600}
+  .no{color:#8c2f2f}
+  .files{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}
+  .files a{display:inline-flex;flex-direction:column;padding:8px 14px;border-radius:10px;
+    text-decoration:none;background:var(--ac-card-2,#eee7db);
+    border:1px solid var(--ac-line,#dcd3c4);color:var(--ac-ink,#201e1d)}
+  .files .meta{font-size:11px;color:var(--ac-ink-3,#645c50);text-transform:uppercase}
+  .up{background:var(--ac-card,#f9f4ed);border:1px dashed var(--ac-line-strong,#c0b6a5);
+    border-radius:14px;padding:16px 18px;margin:0 0 24px}
+  h2.sec{font-size:14px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:28px 0 12px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="h-head">
+  <h1>{{ handout.title }}<span class="pill {{ handout.status }}">{{ handout.get_status_display }}</span></h1>
+  <div class="sub">
+    <b>{{ handout.code }}</b> · {{ handout.syllabus }}
+    {% if handout.due_date %} · due {{ handout.due_date|date:"l j F" }}{% endif %}
+    {% if handout.max_marks %} · {{ handout.max_marks }} marks{% endif %}
+    · up to {{ handout.max_rounds }} attempt{{ handout.max_rounds|pluralize }}
+  </div>
+</div>
+
+<div class="cards">
+  <div class="card"><b>{{ completion.total }}</b><span>In the class</span></div>
+  <div class="card"><b>{{ completion.submitted }}</b><span>Handed in</span></div>
+  <div class="card"><b>{{ completion.outstanding }}</b><span>Outstanding</span></div>
+</div>
+
+<h2 class="sec">The sheet</h2>
+{% if sheet %}
+  <div class="files">
+    {% for f in sheet %}
+      <a href="{{ f.url }}" target="_blank" rel="noopener">
+        <span>{{ f.name }}</span><span class="meta">{{ f.kind }} · {{ f.size }}</span>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <p style="color:var(--ac-ink-3,#645c50)">No sheet attached yet.</p>
+{% endif %}
+
+{% if may_change %}
+  <form class="up" method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="upload">
+    <input type="file" name="files" multiple required>
+    <select name="role">
+      <option value="handout">The sheet students get</option>
+      <option value="scheme">Answer scheme — never given out</option>
+    </select>
+    <button type="submit" class="ghost">Attach</button>
+  </form>
+{% endif %}
+
+{% if versions|length > 1 %}
+  <h2 class="sec">Earlier versions</h2>
+  <table class="roll">
+    <tr><th>Version</th><th>File</th><th>Replaced</th><th>Note</th></tr>
+    {% for v in versions %}
+      <tr>
+        <td>v{{ v.sheet.version_no }}{% if v.sheet.is_current %} <span class="yes">current</span>{% endif %}</td>
+        <td>{% if v.url %}<a href="{{ v.url }}" download>{{ v.name }}</a>{% else %}—{% endif %}</td>
+        <td>{% if v.sheet.replaced_on %}{{ v.sheet.replaced_on|date:"j M, H:i" }}{% else %}—{% endif %}</td>
+        <td>{{ v.sheet.note|default:"—" }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+  <p style="font-size:13px;color:var(--ac-ink-3,#645c50);margin-top:10px">
+    Work handed in earlier still points at the version it answered, so a mark
+    always refers to the paper the student actually had.
+  </p>
+{% endif %}
+
+{% if scheme %}
+  <h2 class="sec">Answer scheme <span style="text-transform:none;letter-spacing:0">(staff only)</span></h2>
+  <div class="files">
+    {% for f in scheme %}
+      <a href="{{ f.url }}" target="_blank" rel="noopener">
+        <span>{{ f.name }}</span><span class="meta">{{ f.kind }} · {{ f.size }}</span>
+      </a>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<div class="row">
+  <a href="{{ print_url }}">Print — {{ completion.total }} copies</a>
+  {% if may_change %}
+    <form method="post" style="display:inline">{% csrf_token %}
+      {% if handout.status != "active" %}
+        <button name="action" value="activate">Hand out to the class</button>
+      {% else %}
+        <button class="ghost" name="action" value="close">Close it</button>
+      {% endif %}
+    </form>
+  {% endif %}
+  <a class="ghost" href="{{ admin_url }}">Edit details</a>
+  <a class="ghost" href="{{ my_day_url }}">My day</a>
+</div>
+
+<h2 class="sec">The class</h2>
+<div class="row" style="margin-bottom:14px">
+  <a class="ghost" href="{% url 'handout-extend' handout.pk %}">Give an extension</a>
+</div>
+<table class="roll">
+  <tr>
+    <th>Student</th><th>Admission no</th><th>Handed in</th>
+    <th>On time</th><th>Checked</th><th>Score</th><th></th>
+  </tr>
+  {% for r in roll %}
+    <tr>
+      <td>{{ r.student.full_name }}</td>
+      <td>{{ r.student.admission_no }}</td>
+      <td>
+        {% if r.handed_in %}
+          <span class="yes">{{ r.latest.get_state_display }}</span>
+          <small>{{ r.latest.time_submitted|date:"j M, H:i" }}</small>
+        {% else %}
+          <span class="no">Not yet</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if r.timing == "ontime" %}<span class="pill ontime">On time</span>
+        {% elif r.timing == "late" %}<span class="pill late">Late</span>
+        {% else %}<span class="na">n/a</span>{% endif %}
+      </td>
+      <td>
+        {% for f in r.checked %}
+          <a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a>
+        {% empty %}
+          {% if r.handed_in %}<span class="na">waiting</span>{% else %}<span class="na">n/a</span>{% endif %}
+        {% endfor %}
+      </td>
+      <td>
+        {% if r.latest.awarded_marks is not None %}
+          {{ r.latest.awarded_marks }}{% if handout.max_marks %} / {{ handout.max_marks }}{% endif %}
+        {% else %}—{% endif %}
+        {% if r.rounds|length > 1 %}<small>attempt {{ r.rounds|length }}</small>{% endif %}
+      </td>
+      <td>
+        {% if r.latest and may_change %}
+          {% if r.latest.awaits_redo %}
+            <span class="pill late">redo asked for</span>
+          {% else %}
+            <form method="post" class="redo">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="request_redo">
+              <input type="hidden" name="submission" value="{{ r.latest.pk }}">
+              <input type="text" name="reason" placeholder="What to put right">
+              <button type="submit">Ask again</button>
+            </form>
+          {% endif %}
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="7" style="color:var(--ac-ink-3,#645c50)">
+      Nobody is enrolled in this grade for {{ handout.syllabus.academic_year }}.</td></tr>
+  {% endfor %}
+</table>
+<p style="font-size:12px;color:var(--ac-ink-3,#645c50);margin-top:10px">
+  Late only appears where late submissions were allowed or an extension was
+  given — otherwise work after the due date is refused, not taken late.
+  Work is checked by an examiner; “Ask again” sends one student's piece back
+  for redoing, and nothing returns automatically.
+</p>
+{% endblock %}

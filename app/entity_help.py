@@ -67,6 +67,38 @@ ENTITY_HELP = {
             ("photo", "Their portrait. Square — the width must equal the height — and under 100 KB. Stored with the other pictures and shown as the avatar in lists."),
         ],
     },
+    "timetableslot": {
+        "summary": "One line of the weekly timetable: a subject, a grade, a day and a period.",
+        "role": "The pattern lessons are created from. It is a template, not a record of what happened.",
+        "context": "Set once and changed rarely. A teacher swapping days edits that day's lesson, not this slot, so the weeks already taught stay true. Breaks are not modelled - only periods that are lessons appear here.",
+        "fields": [
+            ("syllabus", "The subject, grade and year this slot teaches."),
+            ("teacher", "Who normally teaches it. A lesson may name someone else."),
+            ("period", "The period label, the same one registers use."),
+        ],
+    },
+    "lesson": {
+        "summary": "One class on one date - the row everything about that class hangs off.",
+        "role": "Lecture material attaches to it, topics are planned and ticked off on it, and it is the unit the head reviews.",
+        "context": "Drafted by the teacher, submitted, then approved by a Head of Department. Nothing reaches students until it is approved. An empty 'date taught' means the lesson was never written up, which is what the compliance view looks for.",
+        "fields": [
+            ("slot", "The weekly slot this came from. Empty for a one-off lesson."),
+            ("plan", "What will be taught. Prepared in advance; this is what the head reviews."),
+            ("log", "Written after the lesson: what was actually covered, and anything the class needs."),
+            ("date_taught", "Set when the teacher logs the lesson. Empty means it was never written up."),
+            ("status", "Draft, submitted, approved, returned or retired."),
+            ("review_comment", "Why it was returned. Review is for improving the lesson, not only gating it."),
+        ],
+    },
+    "lessontopic": {
+        "summary": "A topic a lesson plans to cover, and whether it actually was.",
+        "role": "Planned is set when the lesson is written; covered when it is logged afterwards.",
+        "context": "The gap between planned and covered is the useful signal - it is what 'pending topics' means on a student's view.",
+        "fields": [
+            ("planned", "The topic was meant to be taught in this lesson."),
+            ("covered", "Ticked when the lesson is logged after teaching."),
+        ],
+    },
     "teacher": {
         "summary": "A member of teaching staff, tied to their login.",
         "role": "Teaching assignments connect a teacher to the syllabi they teach.",

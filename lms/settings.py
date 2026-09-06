@@ -92,6 +92,9 @@ MIDDLEWARE = [
     "app.audit.CurrentUserMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # A teacher signing in wants the class they are about to take,
+    # not a dashboard. Last in the list, so authentication has run.
+    "app.middleware.TeacherLandingMiddleware",
 ]
 
 ROOT_URLCONF = "lms.urls"
@@ -304,64 +307,109 @@ JET_THEMES = [
     {"theme": "light-blue", "color": "#5EADDE", "title": "Light blue"},
     {"theme": "light-gray", "color": "#222", "title": "Light gray"},
 ] if env_bool("JET_SHOW_THEME_PICKER", True) else []
+# The admin home page. Jet's default lists every table the user has any
+# permission on, plus links to Django's documentation and IRC channel —
+# a developer's index, shown to teachers. app/dashboard.py replaces it
+# with panels chosen for whoever is signed in.
+JET_INDEX_DASHBOARD = "app.dashboard.AcademyDashboard"
+
+# The page behind the "App" breadcrumb has its own dashboard. Left at the
+# default it lists every model again, undoing the home page.
+JET_APP_INDEX_DASHBOARD = "app.dashboard.AcademyAppIndexDashboard"
+
 JET_SIDE_MENU_COMPACT = True
 JET_CHANGE_FORM_SIBLING_LINKS = True
 
 # The order the left menu is built in, grouped the way the ERD is:
-# placement, curriculum, question bank, papers, marking, retention.
+# placement, curriculum, lessons, question bank, papers, marking, retention.
+#
+# Every entry carries an explicit `permissions` list, and that is not
+# decoration. Jet builds this menu itself rather than from Django's own
+# app list, and when an entry names a model the signed-in user may not
+# see, it falls back to `has_perms = True` — so without these the menu
+# advertises the whole system to every role. The permissions here are what
+# make a Paper Setter's menu look like a Paper Setter's job.
+#
+# A group's permission is the one its other items imply: anyone who may
+# work in that area holds it.
 JET_SIDE_MENU_ITEMS = [
-    {"label": "People & placement", "items": [
-        {"name": "app.grade"},
-        {"name": "app.student"},
-        {"name": "app.teacher"},
-        {"name": "app.enrolment"},
-        {"name": "app.studentcohort"},
-        {"name": "app.cohortmembership"},
+    {"label": "People & placement", "permissions": ["app.view_student"], "items": [
+        {"name": "app.grade", "permissions": ["app.view_grade"]},
+        {"name": "app.student", "permissions": ["app.view_student"]},
+        {"name": "app.teacher", "permissions": ["app.view_teacher"]},
+        {"name": "app.enrolment", "permissions": ["app.view_enrolment"]},
+        {"name": "app.studentcohort", "permissions": ["app.view_studentcohort"]},
+        {"name": "app.cohortmembership", "permissions": ["app.view_cohortmembership"]},
     ]},
-    {"label": "Curriculum", "items": [
-        {"name": "app.subject"},
-        {"name": "app.topic"},
-        {"name": "app.syllabus"},
-        {"name": "app.syllabustopic"},
-        {"name": "app.studentsubject"},
-        {"name": "app.teachingassignment"},
+    {"label": "Curriculum", "permissions": ["app.view_subject"], "items": [
+        {"name": "app.subject", "permissions": ["app.view_subject"]},
+        {"name": "app.topic", "permissions": ["app.view_topic"]},
+        {"name": "app.syllabus", "permissions": ["app.view_syllabus"]},
+        {"name": "app.syllabustopic", "permissions": ["app.view_syllabustopic"]},
+        {"name": "app.studentsubject", "permissions": ["app.view_studentsubject"]},
+        {"name": "app.teachingassignment", "permissions": ["app.view_teachingassignment"]},
     ]},
-    {"label": "Question bank", "items": [
-        {"name": "app.question"},
-        {"name": "app.binaryconfig"},
-        {"name": "app.numericconfig"},
-        {"name": "app.evaluationprompt"},
-        {"name": "app.promptversion"},
+    {"label": "Timetable & lessons", "permissions": ["app.view_lesson"], "items": [
+        {"label": "Home", "url": {"type": "reverse", "name": "teacher-home"},
+         "permissions": ["app.view_lesson"]},
+        {"label": "My day", "url": {"type": "reverse", "name": "my-day"},
+         "permissions": ["app.view_lesson"]},
+        {"label": "Calendar", "url": {"type": "reverse", "name": "calendar"},
+         "permissions": ["app.view_lesson"]},
+        {"label": "All lessons", "url": {"type": "reverse", "name": "browse"},
+         "permissions": ["app.view_lesson"]},
+        {"label": "My subjects", "url": {"type": "reverse", "name": "my-subjects"},
+         "permissions": ["app.view_lesson"]},
+        {"name": "app.timetableslot", "permissions": ["app.view_timetableslot"]},
+        {"name": "app.lesson", "permissions": ["app.view_lesson"]},
+        {"name": "app.lessontopic", "permissions": ["app.view_lessontopic"]},
     ]},
-    {"label": "Papers", "items": [
-        {"name": "app.questionpaper"},
-        {"name": "app.paperversion"},
-        {"name": "app.paperitem"},
-        {"name": "app.paperassignment"},
+    {"label": "Handouts & work", "permissions": ["app.view_handout"], "items": [
+        {"label": "Assignments", "url": {"type": "reverse", "name": "assignments"},
+         "permissions": ["app.view_handout"]},
+        {"label": "Checking", "url": {"type": "reverse", "name": "checking-queue"},
+         "permissions": ["app.change_submission"]},
+        {"label": "My work", "url": {"type": "reverse", "name": "my-work"},
+         "permissions": ["app.view_handout"]},
+        {"name": "app.handout", "permissions": ["app.view_handout"]},
+        {"name": "app.submission", "permissions": ["app.view_submission"]},
     ]},
-    {"label": "Attendance", "items": [
-        {"name": "app.attendancesession"},
-        {"name": "app.attendancerecord"},
+    {"label": "Question bank", "permissions": ["app.view_question"], "items": [
+        {"name": "app.question", "permissions": ["app.view_question"]},
+        {"name": "app.binaryconfig", "permissions": ["app.view_binaryconfig"]},
+        {"name": "app.numericconfig", "permissions": ["app.view_numericconfig"]},
+        {"name": "app.evaluationprompt", "permissions": ["app.view_evaluationprompt"]},
+        {"name": "app.promptversion", "permissions": ["app.view_promptversion"]},
     ]},
-    {"label": "Files", "items": [
-        {"name": "app.attachment"},
-        {"name": "app.attachmentlink"},
-        {"name": "app.uploadsession"},
+    {"label": "Papers", "permissions": ["app.view_questionpaper"], "items": [
+        {"name": "app.questionpaper", "permissions": ["app.view_questionpaper"]},
+        {"name": "app.paperversion", "permissions": ["app.view_paperversion"]},
+        {"name": "app.paperitem", "permissions": ["app.view_paperitem"]},
+        {"name": "app.paperassignment", "permissions": ["app.view_paperassignment"]},
     ]},
-    {"label": "Marking", "items": [
-        {"name": "app.attempt"},
-        {"name": "app.answer"},
-        {"name": "app.evaluation"},
+    {"label": "Attendance", "permissions": ["app.view_attendancesession"], "items": [
+        {"name": "app.attendancesession", "permissions": ["app.view_attendancesession"]},
+        {"name": "app.attendancerecord", "permissions": ["app.view_attendancerecord"]},
     ]},
-    {"label": "Demo", "items": [
+    {"label": "Files", "permissions": ["app.view_attachment"], "items": [
+        {"name": "app.attachment", "permissions": ["app.view_attachment"]},
+        {"name": "app.attachmentlink", "permissions": ["app.view_attachmentlink"]},
+        {"name": "app.uploadsession", "permissions": ["app.view_uploadsession"]},
+    ]},
+    {"label": "Marking", "permissions": ["app.view_evaluation"], "items": [
+        {"name": "app.attempt", "permissions": ["app.view_attempt"]},
+        {"name": "app.answer", "permissions": ["app.view_answer"]},
+        {"name": "app.evaluation", "permissions": ["app.view_evaluation"]},
+    ]},
+    {"label": "Demo", "permissions": ["app.add_student"], "items": [
         {"label": "Demo data", "url": {"type": "reverse", "name": "demo"},
          "permissions": ["app.add_student"]},
     ]},
-    {"label": "Administration", "items": [
-        {"name": "app.appuser"},
-        {"name": "auth.group"},
-        {"name": "app.guardianlink"},
-        {"name": "app.retentionpolicy"},
-        {"name": "app.purgerun"},
+    {"label": "Administration", "permissions": ["auth.view_group"], "items": [
+        {"name": "app.appuser", "permissions": ["app.view_appuser"]},
+        {"name": "auth.group", "permissions": ["auth.view_group"]},
+        {"name": "app.guardianlink", "permissions": ["app.view_guardianlink"]},
+        {"name": "app.retentionpolicy", "permissions": ["app.view_retentionpolicy"]},
+        {"name": "app.purgerun", "permissions": ["app.view_purgerun"]},
     ]},
 ]

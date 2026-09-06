@@ -1,0 +1,77 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Checking · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .ck-head{margin:0 0 20px}
+  .ck-head h1{margin:0 0 4px;font-size:26px}
+  .ck-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  table.q{width:100%;border-collapse:collapse;font-size:14px}
+  table.q th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);padding:8px 12px;
+    border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.q td{padding:11px 12px;border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.q a.go{display:inline-block;padding:7px 18px;border-radius:999px;
+    background:var(--ac-accent,#c67139);color:#fff;text-decoration:none;font-size:13px}
+  .pill{font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;font-weight:600}
+  .pill.late{background:#fdf4e3;color:#8a5a12}
+  .waiting{color:#8c2f2f;font-weight:600}
+  .empty{color:var(--ac-ink-3,#645c50);font-size:14px}
+  h2.sec{font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:30px 0 10px}
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}<div class="breadcrumbs">Checking</div>{% endblock %}
+
+{% block content %}
+<div class="ck-head">
+  <h1>Checking</h1>
+  <div class="sub">
+    {% if waiting_count %}{{ waiting_count }} waiting, oldest first
+    {% else %}Nothing waiting{% endif %}
+  </div>
+</div>
+
+<table class="q">
+  <tr>
+    <th>Handed in</th><th>Student</th><th>Class</th><th>Assignment</th>
+    <th>On time</th><th></th>
+  </tr>
+  {% for r in rows %}
+    <tr>
+      <td>
+        {{ r.submission.time_submitted|date:"j M, H:i" }}
+        {% if r.waiting_days %}
+          <span class="waiting">{{ r.waiting_days }}d</span>
+        {% endif %}
+      </td>
+      <td>{{ r.student.full_name }}<br>
+        <small style="color:var(--ac-ink-3,#645c50)">{{ r.student.admission_no }}</small></td>
+      <td>{{ r.handout.syllabus.grade }} · {{ r.handout.syllabus.subject.short_name }}</td>
+      <td>{{ r.handout.topic_text|default:r.handout.title }}<br>
+        <small style="color:var(--ac-ink-3,#645c50)">{{ r.handout.code }}</small></td>
+      <td>{% if r.submission.is_late %}<span class="pill late">Late</span>{% else %}On time{% endif %}</td>
+      <td><a class="go" href="{{ r.url }}">Check</a></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="empty">
+      Nothing to check. Work appears here as students hand it in.</td></tr>
+  {% endfor %}
+</table>
+
+{% if recent %}
+  <h2 class="sec">Recently checked by you</h2>
+  <table class="q">
+    {% for sub in recent %}
+      <tr>
+        <td>{{ sub.date_marked|date:"j M, H:i" }}</td>
+        <td>{{ sub.enrolment.student.full_name }}</td>
+        <td>{{ sub.handout.code }}</td>
+        <td>{% if sub.awarded_marks is not None %}{{ sub.awarded_marks }}{% if sub.handout.max_marks %} / {{ sub.handout.max_marks }}{% endif %}{% else %}—{% endif %}</td>
+        <td>{{ sub.get_state_display }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,907 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}My day · {{ block.super }}{% endblock %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'teacher-home' %}">Home</a> &rsaquo; My day
+  </div>
+{% endblock %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <style>
+    .day-head { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin:0 0 22px; }
+    .day-head h1 { margin:0; font-size:26px; }
+    .day-head .sub { color:var(--ac-ink-3,#645c50); font-size:14px; }
+    .day-nav { margin-left:auto; display:flex; gap:8px; align-items:center; }
+    .day-nav a {
+      display:inline-block; padding:6px 14px; border-radius:999px;
+      border:1px solid var(--ac-line,#dcd3c4); text-decoration:none;
+      color:var(--ac-ink-2,#474238); background:var(--ac-card,#f9f4ed); font-size:13px;
+    }
+    .day-nav a:hover { border-color:var(--ac-line-strong,#c0b6a5); }
+
+    .lesson-card {
+      background:var(--ac-card,#f9f4ed); border:1px solid var(--ac-line,#dcd3c4);
+      border-radius:14px; padding:16px 18px; margin:0 0 12px;
+      display:flex; gap:18px; align-items:flex-start;
+    }
+    .lesson-card .period {
+      min-width:60px; text-align:center; padding:8px 0;
+      background:var(--ac-card-2,#eee7db); border-radius:10px;
+    }
+    .lesson-card .period b { display:block; font-size:20px; line-height:1.1; }
+    .lesson-card .period span { font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+      color:var(--ac-ink-3,#645c50); }
+    .lesson-card .body { flex:1 1 auto; min-width:0; }
+    .lesson-card h3 { margin:0 0 4px; font-size:17px; }
+    .lesson-card h3 a { text-decoration:none; }
+    .lesson-card .where { color:var(--ac-ink-3,#645c50); font-size:13px; margin:0 0 8px; }
+    .lesson-card .topics { font-size:13px; margin:0 0 8px; color:var(--ac-ink-2,#474238); }
+    .lesson-card .files { display:flex; flex-wrap:wrap; gap:8px; margin:0; }
+    .lesson-card .files a.file {
+      display:inline-flex; flex-direction:column; gap:2px;
+      padding:8px 14px; border-radius:10px; text-decoration:none;
+      background:var(--ac-card-2,#eee7db); border:1px solid var(--ac-line,#dcd3c4);
+      color:var(--ac-ink,#201e1d); max-width:280px;
+    }
+    .lesson-card .files a.file:hover { border-color:var(--ac-accent,#c67139); }
+    .lesson-card .files .name {
+      font-size:13px; font-weight:600; overflow:hidden;
+      text-overflow:ellipsis; white-space:nowrap;
+    }
+    .lesson-card .files .meta {
+      font-size:11px; color:var(--ac-ink-3,#645c50);
+      letter-spacing:.04em; text-transform:uppercase;
+    }
+    .lesson-card .nofiles { font-size:13px; margin:0; color:var(--ac-ink-3,#645c50); }
+    .lesson-card .handouts { margin:0; }
+
+    .timer { display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+      margin:10px 0 14px; padding:10px 14px; border-radius:12px;
+      background:var(--ac-card-2,#eee7db); border:1px solid var(--ac-line,#dcd3c4); }
+    .timer.running { border-color:#7aa87f; background:#e9f3e9; }
+    .timer.paused  { border-color:#d9b877; background:#fdf4e3; }
+    .timer.ended   { border-color:#b9c2cc; background:#eef1f4; }
+    .timer .state { font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+      color:var(--ac-ink-3,#645c50); }
+    .timer.running .state { color:#2f6b35; font-weight:700; }
+    .timer.ended .clock { color:var(--ac-ink-3,#645c50); }
+    .timer .clock { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums;
+      min-width:96px; }
+    .timer button { padding:7px 16px; border:0; border-radius:999px; cursor:pointer;
+      font-size:13px; background:var(--ac-accent,#c67139); color:#fff; margin-right:6px; }
+    .timer button.ghost { background:transparent; color:var(--ac-accent-text,#8c491a);
+      border:1px solid var(--ac-line-strong,#c0b6a5); }
+    .timer .pctbadge { margin-left:auto; font-size:12px; letter-spacing:.05em;
+      text-transform:uppercase; color:var(--ac-ink-3,#645c50); }
+
+    .topics-list { margin:0 0 12px; }
+    .topic { padding:10px 0; border-top:1px solid var(--ac-line,#dcd3c4); }
+    .topic-head { display:flex; align-items:baseline; gap:10px; }
+    .topic-head b { font-size:14px; }
+    .topic .pct { font-size:12px; color:var(--ac-ink-3,#645c50);
+      font-variant-numeric:tabular-nums; }
+    .topic .pct.full { color:#2f6b35; font-weight:700; }
+    .topic-files { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .topic-files a { display:inline-flex; flex-direction:column; gap:2px;
+      padding:7px 13px; border-radius:10px; text-decoration:none; max-width:280px;
+      border:1px solid var(--ac-line,#dcd3c4); color:var(--ac-ink,#201e1d); font-size:13px; }
+    .topic-files a.notes { background:var(--ac-card-2,#eee7db); }
+    .topic-files a.hand { background:#f3ece0; }
+    .topic-files a:hover { border-color:var(--ac-accent,#c67139); }
+    .topic-files a.addnotes { border:1px dashed var(--ac-line-strong,#c0b6a5);
+      background:transparent; color:var(--ac-accent-text,#8c491a);
+      align-self:center; padding:7px 12px; }
+    .topic-files .meta { font-size:10px; letter-spacing:.05em; text-transform:uppercase;
+      color:var(--ac-ink-3,#645c50); }
+
+    .logbox { margin:12px 0 4px; border:1px solid var(--ac-line,#dcd3c4);
+      border-radius:12px; padding:10px 14px; background:var(--ac-card-2,#eee7db); }
+    .logbox summary { cursor:pointer; font-size:13px; font-weight:600; }
+    .logrow { margin:0 0 14px; padding:0 0 12px;
+      border-bottom:1px solid var(--ac-line,#dcd3c4); }
+    .logrow:last-of-type { border-bottom:0; }
+    .logrow .topline { display:flex; align-items:center; gap:8px; }
+    .logrow .topline .donebox { font-size:14px; font-weight:600; }
+    .logrow .pencil { border:0; background:transparent; cursor:pointer; font-size:13px;
+      color:var(--ac-ink-3,#645c50); opacity:0; transition:opacity .12s; }
+    .logrow:hover .pencil { opacity:1; }
+    .topicedit { margin:0 0 14px; padding:12px 14px; border-radius:10px;
+      background:var(--ac-card-2,#eee7db); border:1px solid var(--ac-line,#dcd3c4); }
+    .topicedit .lbl { display:block; font-size:10px; letter-spacing:.09em;
+      text-transform:uppercase; color:var(--ac-ink-3,#645c50); margin:0 0 5px; }
+    .topicedit .topicname { width:100%; max-width:380px; padding:8px 12px;
+      border-radius:8px; border:1px solid var(--ac-line,#dcd3c4);
+      font-size:14px; margin:0 0 14px; }
+    .topicedit .partlist { margin:0 0 8px 12px; padding:0 0 0 12px;
+      border-left:2px solid var(--ac-line,#dcd3c4); }
+    .topicedit .partrow { display:flex; gap:8px; align-items:center; margin:0 0 6px; }
+    .topicedit .partrow input[type=text] { flex:1 1 auto; max-width:340px;
+      padding:7px 11px; border-radius:8px; font-size:13px;
+      border:1px solid var(--ac-line,#dcd3c4); }
+    .topicedit .minus, .topicedit .plus { width:30px; height:30px; border-radius:50%;
+      border:1px solid var(--ac-line-strong,#c0b6a5); background:transparent;
+      cursor:pointer; font-size:17px; line-height:1; color:var(--ac-ink-2,#474238); }
+    .topicedit .plus { border-style:dashed; color:var(--ac-accent-text,#8c491a); }
+    .topicedit .minus:hover { border-color:#c08585; color:#8c2f2f; }
+    .topicedit .partactions { display:flex; align-items:center; gap:10px;
+      margin:0 0 16px 24px; }
+    .topicedit .panelactions { display:flex; gap:9px; }
+    .topicedit .panelactions button { padding:9px 22px; border-radius:999px;
+      border:0; cursor:pointer; font-size:13px; }
+    .topicedit .panelactions .tick { background:#2f6b35; color:#fff; }
+    .topicedit .panelactions .cancel { background:transparent;
+      color:var(--ac-ink-3,#645c50); border:1px solid var(--ac-line,#dcd3c4); }
+    .fetchbar { margin:10px 0 0; }
+    .logrow .donebox { display:flex; align-items:center; gap:9px; cursor:pointer; }
+    .logrow .donebox input { width:17px; height:17px; }
+    .logrow .children .childlabel { font-size:11px; letter-spacing:.06em;
+      text-transform:uppercase; color:var(--ac-ink-3,#645c50); }
+    .logbox .hintline { font-size:12px; color:var(--ac-ink-3,#645c50); margin:10px 0 0; }
+    .flash { margin:0 0 12px; padding:10px 14px; border-radius:10px;
+      background:#dcefdc; border:1px solid #7aa87f; color:#2f6b35;
+      font-size:13px; font-weight:600; }
+    .flash.warn { background:#fdf4e3; border-color:#d9b877; color:#8a5a12; }
+    .carrybox { margin:12px 0 0; padding:12px 14px; border-radius:10px;
+      background:#fdf4e3; border:1px solid #e8d5a8; }
+    .carrybox p { margin:0 0 8px; font-size:13px; }
+    .carrybox button { padding:8px 18px; border:0; border-radius:999px;
+      cursor:pointer; background:var(--ac-accent,#c67139); color:#fff; font-size:13px; }
+    .carrybox .hintline { margin-left:10px; }
+    table.lect { width:100%; border-collapse:collapse; font-size:13px; margin:0 0 6px; }
+    table.lect th { text-align:left; font-size:10px; letter-spacing:.08em;
+      text-transform:uppercase; color:var(--ac-ink-3,#645c50); padding:6px 8px;
+      border-bottom:1px solid var(--ac-line,#dcd3c4); font-weight:600; }
+    table.lect td { padding:8px; border-bottom:1px solid var(--ac-line,#dcd3c4);
+      vertical-align:middle; }
+    table.lect td small { color:var(--ac-ink-3,#645c50); margin-left:6px; }
+    table.lect th.pen, table.lect td.pen { width:30px; padding-left:0; }
+    table.lect tr.saved .edit { border:0; background:transparent; cursor:pointer;
+      font-size:14px; color:var(--ac-ink-3,#645c50); opacity:0; transition:opacity .12s; }
+    table.lect tr.saved:hover .edit { opacity:1; }
+    table.lect tr.saved:hover { background:var(--ac-card-2,#eee7db); }
+    .rowform { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+    .rowform input[type=text] { padding:6px 10px; border-radius:8px; font-size:13px;
+      border:1px solid var(--ac-line,#dcd3c4); min-width:110px; flex:1 1 110px; }
+    .rowform input[type=file] { font-size:12px; flex:1 1 180px; }
+    .rowform button { border:0; border-radius:999px; cursor:pointer; font-size:13px;
+      padding:6px 12px; }
+    .rowform .tick { background:#2f6b35; color:#fff; }
+    .rowform .cancel { background:transparent; color:var(--ac-ink-3,#645c50);
+      border:1px solid var(--ac-line,#dcd3c4); }
+    .rowform .del { background:transparent; border:1px solid #e2b8b8; }
+    .keep { margin:6px 0 0; font-size:11px; color:var(--ac-ink-3,#645c50); }
+    .postcell { display:flex; align-items:center; gap:8px; }
+    .badge { font-size:11px; letter-spacing:.05em; text-transform:uppercase;
+      padding:3px 10px; border-radius:999px; font-weight:600; }
+    .badge.posted { background:#dcefdc; color:#2f6b35; }
+    .badge.closed { background:#eef1f4; color:#5a6673; }
+    .badge.overridden { background:#fdf4e3; color:#8a5a12; cursor:help; }
+    .undo { border:1px solid var(--ac-line,#dcd3c4); background:transparent;
+      border-radius:50%; width:26px; height:26px; cursor:pointer; font-size:14px;
+      line-height:1; color:var(--ac-ink-3,#645c50); }
+    .undo:hover { border-color:var(--ac-accent,#c67139);
+      color:var(--ac-accent-text,#8c491a); }
+    .locked { font-size:13px; opacity:.55; cursor:help; }
+    .dates { display:flex; gap:10px; flex-wrap:wrap; flex:1 1 100%; margin-top:4px; }
+    .dates label { font-size:10px; letter-spacing:.07em; text-transform:uppercase;
+      color:var(--ac-ink-3,#645c50); display:flex; flex-direction:column; gap:3px; }
+    .dates input { padding:5px 9px; border-radius:8px; font-size:12px;
+      border:1px solid var(--ac-line,#dcd3c4); }
+    .dates .latebox { flex-direction:row; align-items:center; gap:6px;
+      text-transform:none; letter-spacing:0; font-size:12px;
+      color:var(--ac-ink-2,#474238); align-self:flex-end; padding-bottom:5px; }
+    .dates .latebox input { padding:0; width:15px; height:15px; }
+    .dates .lateuntil[hidden] { display:none; }
+    .mini { border:0; border-radius:999px; padding:5px 12px; font-size:12px;
+      cursor:pointer; background:var(--ac-accent,#c67139); color:#fff; }
+    .mini.link { background:transparent; color:var(--ac-accent-text,#8c491a);
+      border:1px solid var(--ac-line,#dcd3c4); text-decoration:none;
+      display:inline-block; margin-left:6px; }
+    .addbtn { border:1px dashed var(--ac-line-strong,#c0b6a5); background:transparent;
+      color:var(--ac-accent-text,#8c491a); border-radius:999px; padding:7px 16px;
+      cursor:pointer; font-size:13px; }
+    h4.block .addlink { float:right; text-transform:none; letter-spacing:0;
+      font-weight:600; color:var(--ac-accent-text,#8c491a); text-decoration:none; }
+    h4.block .loggedat { float:right; text-transform:none; letter-spacing:0;
+      font-weight:400; color:var(--ac-ink-3,#645c50); }
+    h4.block { font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+      color:var(--ac-ink-3,#645c50); margin:18px 0 8px;
+      padding-bottom:5px; border-bottom:1px solid var(--ac-line,#dcd3c4); }
+    .handout { padding:10px 0; border-top:1px solid var(--ac-line,#dcd3c4); }
+    .handout:first-child { border-top:0; }
+    .handout-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+    .handout-head a { text-decoration:none; }
+    .handout-head .meta { font-size:11px; letter-spacing:.05em; text-transform:uppercase;
+      color:var(--ac-ink-3,#645c50); }
+    .topic-files a.plain { border:0; background:transparent; padding:7px 4px;
+      color:var(--ac-accent-text,#8c491a); font-size:13px; }
+    .topic .carried { font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+      background:#ffe9c7; color:#8a5a12; padding:2px 8px; border-radius:999px; }
+    .logrow .note { display:block; width:100%; margin:8px 0 0; padding:7px 12px;
+      border-radius:8px; border:1px solid var(--ac-line,#dcd3c4); font-size:13px; }
+    .logrow ul.children { list-style:none; margin:6px 0 0 26px; padding:0 0 0 14px;
+      border-left:2px solid var(--ac-line,#dcd3c4); }
+    .logrow ul.children li { padding:3px 0; }
+    .logrow .child { display:flex; align-items:center; gap:8px; font-size:13px;
+      color:var(--ac-ink-2,#474238); cursor:pointer; }
+    .logrow .child input { width:15px; height:15px; }
+    .logrow .child em { font-style:normal; font-size:11px;
+      color:var(--ac-ink-3,#645c50); }
+    .logrow ul.children input:disabled + span { text-decoration:line-through; }
+    .logbox textarea { width:100%; margin-top:12px; padding:8px 10px; border-radius:10px;
+      border:1px solid var(--ac-line,#dcd3c4); font-family:inherit; font-size:13px; }
+    .logbox button { padding:8px 18px; border:0; border-radius:999px; cursor:pointer;
+      background:var(--ac-accent,#c67139); color:#fff; font-size:13px; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    .actions a {
+      display:inline-block; padding:7px 15px; border-radius:999px; font-size:13px;
+      text-decoration:none; background:var(--ac-accent,#c67139); color:#fff;
+    }
+    .actions a.ghost {
+      background:transparent; color:var(--ac-accent-text,#8c491a);
+      border:1px solid var(--ac-line-strong,#c0b6a5);
+    }
+    .tag {
+      display:inline-block; font-size:11px; letter-spacing:.05em; text-transform:uppercase;
+      padding:3px 9px; border-radius:999px; margin-left:8px; vertical-align:middle;
+    }
+    .tag.draft    { background:#eee7db; color:#645c50; }
+    .tag.submitted{ background:#dbe7f3; color:#2c4f73; }
+    .tag.approved { background:#dcefdc; color:#2f6b35; }
+    .tag.returned { background:#fbe0e0; color:#8c2f2f; }
+    .tag.todo     { background:#ffe9c7; color:#8a5a12; }
+
+    h2.section { font-size:14px; letter-spacing:.09em; text-transform:uppercase;
+      color:var(--ac-ink-3,#645c50); margin:30px 0 12px; }
+    .empty { color:var(--ac-ink-3,#645c50); font-size:14px; padding:14px 0 4px; }
+    .note { background:#fff6e2; border:1px solid #e8d5a8; border-radius:12px;
+      padding:12px 16px; margin:0 0 20px; font-size:14px; }
+  </style>
+{% endblock %}
+
+{% block content %}
+  <div class="day-head">
+    <div>
+      <h1>{% if is_today %}Today{% else %}{{ day|date:"l" }}{% endif %}</h1>
+      <div class="sub">{{ day|date:"l j F Y" }}{% if teacher %} · {{ teacher }}{% endif %}</div>
+    </div>
+    <div class="day-nav">
+      <a href="?offset={{ prev_offset }}">‹ Previous day</a>
+      {% if not is_today %}<a href="?offset=0">Today</a>{% endif %}
+      <a href="?offset={{ next_offset }}">Next day ›</a>
+    </div>
+  </div>
+
+  {% if no_teacher_record %}
+    <div class="note">
+      Your account has no teacher record, so this shows every lesson in the
+      school rather than only yours.
+    </div>
+  {% endif %}
+
+    {% for row in today_rows %}
+    <div class="lesson-card" id="lesson-{{ row.lesson.pk }}">
+      <div class="period"><b>{{ row.lesson.period }}</b><span>Period</span></div>
+      <div class="body">
+        <h3>
+          <a href="{{ row.url }}">{{ row.lesson.title|default:row.subject }}</a>
+          <span class="tag {{ row.lesson.status }}">{{ row.lesson.get_status_display }}</span>
+          {% if row.needs_log %}<span class="tag todo">Not logged</span>{% endif %}
+        </h3>
+        <p class="where">{{ row.subject }} · {{ row.grade }}</p>
+
+        {% if flash_lesson == row.lesson.pk|stringformat:"s" %}
+          <div class="flash {% if flash_kind == 'nothing_to_carry' %}warn{% endif %}">
+            {% if flash_kind == "started" %}Started.
+            {% elif flash_kind == "paused" %}Paused — {{ row.elapsed }}.
+            {% elif flash_kind == "ended" %}Ended — {{ row.elapsed }}.
+            {% elif flash_kind == "logged" %}Saved — {{ row.counts.done }} of {{ row.counts.total }} done.
+            {% elif flash_kind == "lecture" %}Saved.
+            {% elif flash_kind == "assign" %}Saved.
+            {% elif flash_kind == "posted" %}Posted — it is in the students' accounts.
+            {% elif flash_kind == "unposted" %}Unposted — students can no longer see it.
+            {% elif flash_kind == "locked" %}Work has already been handed in, so this cannot be unposted. Give an extension instead.
+            {% elif flash_kind == "assign_empty" %}Nothing to save — the row was empty.
+            {% elif flash_kind == "fetched" %}Topics fetched from the lecture table.
+            {% elif flash_kind == "nothing_fetched" %}Nothing new — every lecture topic is already listed.
+            {% elif flash_kind == "topic_saved" %}Saved.
+            {% elif flash_kind == "lecture_empty" %}Nothing to save — the row was empty.
+            {% elif flash_kind == "carried" %}Carried forward.
+            {% elif flash_kind == "nothing_to_carry" %}Nothing to carry.
+            {% else %}Saved.{% endif %}
+          </div>
+        {% endif %}
+
+        {# ---- the class timer ---- #}
+        <div class="timer {{ row.timer_state }}">
+          <span class="clock" data-elapsed="{{ row.elapsed_seconds }}"
+                data-running="{% if row.timer_running %}1{% else %}0{% endif %}">{{ row.elapsed }}</span>
+
+          {% comment %}
+            Only the two states a lecture in progress can be in are named.
+            Idle and ended both offer Start, so the button says it.
+            Django's hash comments are single-line only; a multi-line one
+            renders as visible text, which is exactly what happened here.
+          {% endcomment %}
+          {% if row.timer_state == "running" %}
+            <span class="state">Running</span>
+          {% elif row.timer_state == "paused" %}
+            <span class="state">Paused</span>
+          {% endif %}
+
+          <form method="post" style="display:inline">
+            {% csrf_token %}
+            <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
+            <input type="hidden" name="offset" value="{{ offset }}">
+            {% if row.timer_state == "running" %}
+              <button name="action" value="timer_pause" class="ghost">Pause</button>
+              <button name="action" value="timer_stop">End</button>
+            {% elif row.timer_state == "paused" %}
+              <button name="action" value="timer_start">Resume</button>
+              <button name="action" value="timer_stop">End</button>
+            {% else %}
+              {% comment %}
+                Idle, or ended and being picked up again. Starting after an
+                end adds to the time already on the clock rather than
+                beginning a second one.
+              {% endcomment %}
+              <button name="action" value="timer_start">Start</button>
+            {% endif %}
+          </form>
+
+          {% if row.counts.total %}
+            <span class="pctbadge">{{ row.counts.done }} of {{ row.counts.total }} topics done</span>
+          {% endif %}
+        </div>
+
+        {# ---- Lecture ---- #}
+        <h4 class="block">Lecture</h4>
+        <table class="lect">
+          <tr>
+            <th class="pen"></th>
+            <th>Unit</th><th>Chapter</th><th>Topic</th><th>File</th>
+            <th class="act"></th>
+          </tr>
+
+          {% for r in row.lecture_rows %}
+            <tr class="saved" id="li-{{ r.item.pk }}">
+              <td class="pen">
+                <button type="button" class="edit" title="Edit this row">✎</button>
+              </td>
+              <td>{{ r.item.unit|default:"—" }}</td>
+              <td>{{ r.item.chapter|default:"—" }}</td>
+              <td>{{ r.item.topic|default:"—" }}</td>
+              <td>
+                {% if r.file_url %}
+                  <a href="{{ r.file_url }}" download>{{ r.file_name }}</a>
+                  <small>{{ r.file_size }}</small>
+                {% else %}—{% endif %}
+              </td>
+              <td class="act"></td>
+            </tr>
+            <tr class="editing" hidden>
+              <td class="pen"></td>
+              <td colspan="5">
+                <form method="post" enctype="multipart/form-data" class="rowform">
+                  {% csrf_token %}
+                  <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
+                  <input type="hidden" name="offset" value="{{ offset }}">
+                  <input type="hidden" name="item" value="{{ r.item.pk }}">
+                  <input type="text" name="unit" placeholder="Unit" value="{{ r.item.unit }}">
+                  <input type="text" name="chapter" placeholder="Chapter" value="{{ r.item.chapter }}">
+                  <input type="text" name="topic" placeholder="Topic" value="{{ r.item.topic }}">
+                  <input type="file" name="file">
+                  <button name="action" value="lecture_save" class="tick" title="Save">✓</button>
+                  <button type="button" class="cancel" title="Cancel">✕</button>
+                  <button name="action" value="lecture_delete" class="del" title="Remove">🗑</button>
+                </form>
+                {% if r.file_name %}
+                  <p class="keep">Leaving the file empty keeps {{ r.file_name }}.</p>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+
+          <tr class="adding" hidden>
+            <td class="pen"></td>
+            <td colspan="5">
+              <form method="post" enctype="multipart/form-data" class="rowform">
+                {% csrf_token %}
+                <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
+                <input type="hidden" name="offset" value="{{ offset }}">
+                <input type="text" name="unit" placeholder="Unit">
+                <input type="text" name="chapter" placeholder="Chapter">
+                <input type="text" name="topic" placeholder="Topic">
+                <input type="file" name="file">
+                <button name="action" value="lecture_save" class="tick" title="Save">✓</button>
+                <button type="button" class="cancel" title="Cancel">✕</button>
+              </form>
+            </td>
+          </tr>
+
+          <tr class="addrow">
+            <td class="pen"></td>
+            <td colspan="5">
+              <button type="button" class="addbtn">+ Add a row</button>
+            </td>
+          </tr>
+        </table>
+
+        {# ---- Assignments ---- #}
+        <h4 class="block">Assignments</h4>
+        <table class="lect">
+          <tr>
+            <th class="pen"></th>
+            <th>Chapter</th><th>Topic</th><th>Handout file</th>
+            <th>Code</th><th>Posted?</th><th></th>
+          </tr>
+
+          {% for a in row.assignment_rows %}
+            <tr class="saved" id="ho-{{ a.handout.pk }}">
+              <td class="pen">
+                <button type="button" class="edit" title="Edit this row">✎</button>
+              </td>
+              <td>{{ a.handout.chapter|default:"—" }}</td>
+              <td>{{ a.handout.topic_text|default:a.handout.title }}</td>
+              <td>
+                {% if a.file_url %}
+                  <a href="{{ a.file_url }}" download>{{ a.file_name }}</a>
+                  {% if a.sheet_version > 1 %}
+                    <small title="{{ a.sheets }} versions of this sheet exist. Earlier work still points at the version it answered.">v{{ a.sheet_version }}</small>
+                  {% endif %}
+                  <small>{{ a.file_size }}</small>
+                {% else %}—{% endif %}
+              </td>
+              <td><a href="{{ a.url }}">{{ a.handout.code }}</a></td>
+              <td>
+                <form method="post" class="postcell">
+                  {% csrf_token %}
+                  <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
+                  <input type="hidden" name="offset" value="{{ offset }}">
+                  <input type="hidden" name="handout" value="{{ a.handout.pk }}">
+
+                  {% if a.post_state == "unposted" %}
+                    <button name="action" value="assign_post" class="mini"
+                            title="It appears in every student's account and they can submit">
+                      Post
+                    </button>
+                  {% else %}
+                    <span class="badge {{ a.post_state }}"
+                          {% if a.post_state == "overridden" %}
+                            title="The due date has passed but late work is still being taken{% if a.handout.cutoff_at %}, until {{ a.handout.cutoff_at|date:'j M, H:i' }}{% endif %}."
+                          {% endif %}>
+                      {% if a.post_state == "posted" %}Posted
+                      {% elif a.post_state == "overridden" %}Overridden
+                      {% else %}Closed{% endif %}
+                    </span>
+                    {% if a.handout.is_assignment %}
+                      <small>{{ a.completion.submitted }}/{{ a.completion.total }}</small>
+                    {% endif %}
+                    {% if a.can_unpost %}
+                      <button name="action" value="assign_unpost" class="undo"
+                              title="Take it back out of the students' accounts">⟲</button>
+                    {% else %}
+                      <span class="locked" title="Work has been handed in, so it can no longer be unposted. Give an extension instead.">🔒</span>
+                    {% endif %}
+                  {% endif %}
+                </form>
+                {% if a.post_state != "unposted" %}
+                  <a class="mini link" href="{{ a.extend_url }}">
+                    Extend{% if a.extensions %} ({{ a.extensions }}){% endif %}
+                  </a>
+                {% endif %}
+              </td>
+              <td><a class="mini link" href="{{ a.url }}">Print</a></td>
+            </tr>
+            <tr class="editing" hidden>
+              <td class="pen"></td>
+              <td colspan="6">
+                <form method="post" enctype="multipart/form-data" class="rowform">
+                  {% csrf_token %}
+                  <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
+                  <input type="hidden" name="offset" value="{{ offset }}">
+                  <input type="hidden" name="handout" value="{{ a.handout.pk }}">
+                  <input type="text" name="chapter" placeholder="Chapter" value="{{ a.handout.chapter }}">
+                  <input type="text" name="topic_text" placeholder="Topic" value="{{ a.handout.topic_text }}">
+                  <input type="file" name="file">
+                  <span class="dates">
+                    <label>Open from
+                      <input type="datetime-local" name="open_from"
+                             value="{{ a.handout.open_from|date:'Y-m-d\TH:i' }}"></label>
+                    <label>Due
+                      <input type="date" name="due_date"
+                             value="{{ a.handout.due_date|date:'Y-m-d' }}"></label>
+                    <label class="latebox">
+                      <input type="checkbox" name="allow_late"
+                             {% if a.handout.allow_late %}checked{% endif %}>
+                      Late submissions
+                    </label>
+                    <label class="lateuntil">Until
+                      <input type="datetime-local" name="cutoff_at"
+                             value="{{ a.handout.cutoff_at|date:'Y-m-d\TH:i' }}"></label>
+                  </span>
+                  <button name="action" value="assign_save" class="tick" title="Save">✓</button>
+                  <button type="button" class="cancel" title="Cancel">✕</button>
+                  <button name="action" value="assign_delete" class="del" title="Remove">🗑</button>
+                </form>
+                {% if a.file_name %}
+                  <p class="keep">Leaving the file empty keeps {{ a.file_name }}.</p>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+
+          <tr class="adding" hidden>
+            <td class="pen"></td>
+            <td colspan="6">
+              <form method="post" enctype="multipart/form-data" class="rowform">
+                {% csrf_token %}
+                <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
+                <input type="hidden" name="offset" value="{{ offset }}">
+                <input type="text" name="chapter" placeholder="Chapter"
+                       value="{{ row.defaults.chapter }}">
+                <input type="text" name="topic_text" placeholder="Topic"
+                       value="{{ row.defaults.topic }}">
+                <input type="file" name="file">
+                <span class="dates">
+                  <label>Open from <input type="datetime-local" name="open_from"></label>
+                  <label>Due <input type="date" name="due_date"></label>
+                  <label class="latebox">
+                    <input type="checkbox" name="allow_late"> Late submissions
+                  </label>
+                  <label class="lateuntil">Until
+                    <input type="datetime-local" name="cutoff_at"></label>
+                </span>
+                <button name="action" value="assign_save" class="tick" title="Save">✓</button>
+                <button type="button" class="cancel" title="Cancel">✕</button>
+              </form>
+            </td>
+          </tr>
+
+          <tr class="addrow">
+            <td class="pen"></td>
+            <td colspan="6">
+              <button type="button" class="addbtn">+ Add a row</button>
+              <a class="mini link" href="{{ row.new_handout_url }}">Full form →</a>
+            </td>
+          </tr>
+        </table>
+
+        {# ---- the log ---- #}
+        <h4 class="block">
+          Logging
+          {% if row.lesson.date_taught %}
+            <span class="loggedat">last logged {{ row.lesson.date_taught|date:"j M, H:i" }}</span>
+          {% endif %}
+        </h4>
+        <details class="logbox" {% if row.needs_log and not row.timer_running %}open{% endif %}>
+          <summary>Log</summary>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
+            <input type="hidden" name="offset" value="{{ offset }}">
+            <input type="hidden" name="action" value="log">
+
+            {% for t in row.topic_rows %}
+              <div class="logrow" id="lt-{{ t.entry.pk }}">
+                <div class="topline">
+                  <label class="donebox">
+                    <input type="checkbox" name="topic_done" value="{{ t.entry.pk }}"
+                           {% if t.entry.covered %}checked{% endif %}>
+                    <span>{{ t.topic.short_name }}</span>
+                  </label>
+                  <button type="button" class="pencil" title="Rename, or add parts">✎</button>
+                </div>
+
+                {% if t.children %}
+                  <ul class="children">
+                    {% for c in t.children %}
+                      <li>
+                        <label class="child">
+                          <input type="checkbox" name="child_done" value="{{ c.topic.pk }}"
+                                 {% if c.done %}checked{% endif %}>
+                          <span>{{ c.topic.short_name }}</span>
+                        </label>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+
+                <input type="text" name="note_{{ t.entry.pk }}" class="note"
+                       placeholder="Where did you get to?"
+                       value="{{ t.entry.note }}">
+              </div>
+            {% empty %}
+              <p class="empty" style="margin:8px 0">
+                No topics planned for this lesson. <a href="{{ row.url }}">Add some</a>.
+              </p>
+            {% endfor %}
+
+            <p class="hintline">Tick what you finished.</p>
+            <div class="actions"><button type="submit">Save the log</button></div>
+          </form>
+
+          {% for t in row.topic_rows %}
+            <div class="topicedit" data-for="lt-{{ t.entry.pk }}" hidden>
+              <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
+                <input type="hidden" name="offset" value="{{ offset }}">
+                <input type="hidden" name="topic" value="{{ t.topic.pk }}">
+
+                <label class="lbl">Topic</label>
+                <input type="text" name="name" class="topicname" value="{{ t.topic.short_name }}">
+
+                <label class="lbl">Parts</label>
+                <div class="partlist">
+                  {% for c in t.children %}
+                    <div class="partrow">
+                      <input type="hidden" name="child_id" value="{{ c.topic.pk }}">
+                      <input type="text" name="child_name" value="{{ c.topic.short_name }}">
+                      <button type="button" class="minus" title="Remove this part">−</button>
+                    </div>
+                  {% endfor %}
+                </div>
+
+                <div class="partactions">
+                  <button type="button" class="plus" title="Add a part">+</button>
+                  <span class="hintline">Add or remove as many as you like, then save once.</span>
+                </div>
+
+                <div class="panelactions">
+                  <button name="action" value="topic_save" class="tick">Save</button>
+                  <button type="button" class="cancel">Cancel</button>
+                </div>
+              </form>
+            </div>
+          {% endfor %}
+
+          <form method="post" class="fetchbar">
+            {% csrf_token %}
+            <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
+            <input type="hidden" name="offset" value="{{ offset }}">
+            <button name="action" value="log_fetch" class="addbtn">
+              ⟲ Fetch topics from the lecture table
+            </button>
+          </form>
+
+          {% if row.unfinished %}
+            <div class="carrybox">
+              <p>
+                <b>Not finished:</b>
+                {% for t in row.unfinished %}{{ t }}{% if not forloop.last %}, {% endif %}{% endfor %}
+              </p>
+              {% if row.next_lesson %}
+                <form method="post">
+                  {% csrf_token %}
+                  <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
+                  <input type="hidden" name="offset" value="{{ offset }}">
+                  <button name="action" value="carry">
+                    Carry to {{ row.next_lesson.date|date:"D j M" }}, period {{ row.next_lesson.period }}
+                  </button>
+
+                </form>
+              {% else %}
+                <p class="hintline">No later lesson for this class yet.</p>
+              {% endif %}
+            </div>
+          {% endif %}
+        </details>
+
+        <div class="actions">
+          <a href="{{ row.url }}">Open</a>
+          <a class="ghost" href="{{ row.materials_url }}">Files</a>
+          {% if row.needs_plan %}<a class="ghost" href="{{ row.url }}">Add a plan</a>{% endif %}
+        </div>
+      </div>
+    </div>
+  {% empty %}
+    <p class="empty">
+      No lessons {% if is_today %}today{% else %}on this day{% endif %}.
+      <a href="{{ add_lesson_url }}">Add one</a>.
+    </p>
+  {% endfor %}
+
+  {% if upcoming %}
+    <h2 class="section">Later this week</h2>
+    {% for row in upcoming %}
+      <div class="lesson-card">
+        <div class="period"><b>{{ row.lesson.period }}</b><span>{{ row.lesson.date|date:"D" }}</span></div>
+        <div class="body">
+          <h3>
+            <a href="{{ row.url }}">{{ row.lesson.title|default:row.subject }}</a>
+            <span class="tag {{ row.lesson.status }}">{{ row.lesson.get_status_display }}</span>
+          </h3>
+          <p class="where">{{ row.subject }} · {{ row.grade }} · {{ row.lesson.date|date:"j F" }}</p>
+          {% if row.needs_plan %}
+            <div class="actions"><a class="ghost" href="{{ row.url }}">Add a plan</a></div>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <h2 class="section">Outstanding</h2>
+  {% for row in attention %}
+    <div class="lesson-card">
+      <div class="period"><b>{{ row.lesson.period }}</b><span>{{ row.lesson.date|date:"j M" }}</span></div>
+      <div class="body">
+        <h3>
+          <a href="{{ row.url }}">{{ row.lesson.title|default:row.subject }}</a>
+          {% if row.returned %}<span class="tag returned">Returned</span>{% endif %}
+          {% if row.needs_log %}<span class="tag todo">Not logged</span>{% endif %}
+          {% if row.needs_plan %}<span class="tag todo">No plan</span>{% endif %}
+        </h3>
+        <p class="where">{{ row.subject }} · {{ row.grade }} · {{ row.lesson.date|date:"l j F" }}</p>
+        {% if row.returned and row.lesson.review_comment %}
+          <p class="topics"><b>Sent back:</b> {{ row.lesson.review_comment }}</p>
+        {% endif %}
+        <div class="actions"><a href="{{ row.url }}">Open</a></div>
+      </div>
+    </div>
+  {% empty %}
+    <p class="empty">Nothing outstanding. Every lesson is planned and logged.</p>
+  {% endfor %}
+
+  <p style="margin-top:26px">
+    <a href="{{ lesson_list_url }}">All lessons →</a>
+    <a href="{% url 'my-subjects' %}" style="margin-left:18px">My subjects →</a>
+  </p>
+{% endblock %}
+
+{% block footer %}
+  {{ block.super }}
+  <script>
+    /* The clock is authoritative on the server; this only makes it tick
+       on screen between page loads, so a teacher can see it moving. */
+    /* "Late submissions until" only means anything when late submissions
+       are allowed, so the field follows the checkbox. */
+    (function () {
+      Array.prototype.forEach.call(document.querySelectorAll(".dates"), function (block) {
+        var box = block.querySelector(".latebox input[type=checkbox]");
+        var until = block.querySelector(".lateuntil");
+        if (!box || !until) { return; }
+        function sync() { until.hidden = !box.checked; }
+        sync();
+        box.addEventListener("change", sync);
+      });
+    })();
+
+    /* The pencil beside a topic opens its editing panel, which lives
+       outside the log form because a form cannot be nested inside another. */
+    (function () {
+      Array.prototype.forEach.call(document.querySelectorAll(".logrow"), function (row) {
+        var pencil = row.querySelector(".pencil");
+        var panel = document.querySelector('.topicedit[data-for="' + row.id + '"]');
+        if (!pencil || !panel) { return; }
+        pencil.addEventListener("click", function () {
+          panel.hidden = !panel.hidden;
+          if (!panel.hidden) {
+            var first = panel.querySelector("input[type=text]");
+            if (first) { first.focus(); first.select(); }
+          }
+        });
+        var close = panel.querySelector(".cancel");
+        if (close) {
+          close.addEventListener("click", function () { panel.hidden = true; });
+        }
+
+        /* Plus adds an empty part, minus takes one away. Neither touches
+           the server: the list is laid out first and saved once. */
+        var list = panel.querySelector(".partlist");
+        var plus = panel.querySelector(".plus");
+
+        function wireMinus(button) {
+          button.addEventListener("click", function () {
+            var partRow = button.closest(".partrow");
+            if (partRow) { partRow.parentNode.removeChild(partRow); }
+          });
+        }
+        Array.prototype.forEach.call(panel.querySelectorAll(".minus"), wireMinus);
+
+        if (plus && list) {
+          plus.addEventListener("click", function () {
+            var partRow = document.createElement("div");
+            partRow.className = "partrow";
+            partRow.innerHTML =
+              '<input type="hidden" name="child_id" value="">' +
+              '<input type="text" name="child_name" placeholder="Part name">' +
+              '<button type="button" class="minus" title="Remove this part">\u2212</button>';
+            list.appendChild(partRow);
+            wireMinus(partRow.querySelector(".minus"));
+            partRow.querySelector("input[type=text]").focus();
+          });
+        }
+      });
+    })();
+
+    /* The lecture table edits in place: the pencil swaps a saved row for
+       its form, "Add a row" opens the blank one, and cancel puts things
+       back. Nothing is saved until the tick is pressed. */
+    (function () {
+      function show(el, on) { el.hidden = !on; }
+
+      Array.prototype.forEach.call(document.querySelectorAll("table.lect"), function (table) {
+        Array.prototype.forEach.call(table.querySelectorAll("tr.saved"), function (row) {
+          var form = row.nextElementSibling;
+          var pencil = row.querySelector(".edit");
+          if (!form || !pencil) { return; }
+          pencil.addEventListener("click", function () {
+            show(row, false); show(form, true);
+            var first = form.querySelector("input[type=text]");
+            if (first) { first.focus(); }
+          });
+          var cancel = form.querySelector(".cancel");
+          if (cancel) {
+            cancel.addEventListener("click", function () {
+              show(form, false); show(row, true);
+            });
+          }
+        });
+
+        var addRow = table.querySelector("tr.addrow");
+        var blank = table.querySelector("tr.adding");
+        var addBtn = table.querySelector(".addbtn");
+        if (addBtn && blank && addRow) {
+          addBtn.addEventListener("click", function () {
+            show(blank, true); show(addRow, false);
+            var first = blank.querySelector("input[type=text]");
+            if (first) { first.focus(); }
+          });
+          var cancel = blank.querySelector(".cancel");
+          if (cancel) {
+            cancel.addEventListener("click", function () {
+              show(blank, false); show(addRow, true);
+            });
+          }
+        }
+      });
+    })();
+
+    /* Ticking a topic as done settles its parts too, so the sub-topic
+       boxes below it are switched off rather than left to disagree with
+       it. Nothing is lost by that: a part already marked covered stays
+       covered — the log only ever adds ticks, never removes them. */
+    (function () {
+      function sync(row) {
+        var main = row.querySelector(".donebox input[type=checkbox]");
+        var children = row.querySelectorAll(".children input[type=checkbox]");
+        if (!main || !children.length) { return; }
+        var off = main.checked;
+        Array.prototype.forEach.call(children, function (box) {
+          box.disabled = off;
+        });
+        var block = row.querySelector("ul.children");
+        if (block) {
+          block.style.opacity = off ? "0.4" : "";
+          block.title = off ? "The whole topic is marked done." : "";
+        }
+      }
+
+      var rows = document.querySelectorAll(".logrow");
+      Array.prototype.forEach.call(rows, function (row) {
+        var main = row.querySelector(".donebox input[type=checkbox]");
+        if (!main) { return; }
+        sync(row);
+        main.addEventListener("change", function () { sync(row); });
+      });
+    })();
+
+    (function () {
+      var clocks = document.querySelectorAll(".clock[data-running='1']");
+      if (!clocks.length) { return; }
+      function pad(n) { return n < 10 ? "0" + n : "" + n; }
+      setInterval(function () {
+        Array.prototype.forEach.call(clocks, function (el) {
+          var s = parseInt(el.getAttribute("data-elapsed"), 10) + 1;
+          el.setAttribute("data-elapsed", s);
+          el.textContent = Math.floor(s / 3600) + ":" +
+            pad(Math.floor((s % 3600) / 60)) + ":" + pad(s % 60);
+        });
+      }, 1000);
+    })();
+  </script>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Calendar · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .cal-head{display:flex;align-items:baseline;gap:16px;margin:0 0 18px;flex-wrap:wrap}
+  .cal-head h1{margin:0;font-size:26px}
+  .cal-nav{margin-left:auto;display:flex;gap:8px}
+  .cal-nav a{padding:6px 14px;border-radius:999px;text-decoration:none;font-size:13px;
+    border:1px solid var(--ac-line,#dcd3c4);background:var(--ac-card,#f9f4ed);
+    color:var(--ac-ink-2,#474238)}
+  table.cal{width:100%;border-collapse:collapse;table-layout:fixed}
+  table.cal th{font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);padding:6px;text-align:left}
+  table.cal td{border:1px solid var(--ac-line,#dcd3c4);vertical-align:top;
+    height:96px;padding:6px;background:var(--ac-card,#f9f4ed)}
+  table.cal td.out{background:transparent;opacity:.45}
+  table.cal td.today{border-color:var(--ac-accent,#c67139);background:#fdf4e3}
+  .daynum{font-size:12px;color:var(--ac-ink-3,#645c50);font-variant-numeric:tabular-nums}
+  .ev{display:block;margin-top:4px;padding:3px 6px;border-radius:6px;font-size:11px;
+    text-decoration:none;background:var(--ac-card-2,#eee7db);color:var(--ac-ink,#201e1d)}
+  .ev:hover{background:#f3ece0}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cal-head">
+  <h1>{{ month_name }}</h1>
+  <div class="cal-nav">
+    <a href="{{ prev }}">‹ Previous</a>
+    <a href="{% url 'calendar' %}">This month</a>
+    <a href="{{ next }}">Next ›</a>
+  </div>
+</div>
+
+<table class="cal">
+  <tr><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th></tr>
+  {% for week in weeks %}
+    <tr>
+      {% for day in week %}
+        <td class="{% if not day.in_month %}out{% endif %} {% if day.is_today %}today{% endif %}">
+          <span class="daynum">{{ day.date|date:"j" }}</span>
+          {% for e in day.lessons %}
+            <a class="ev" href="{{ e.url }}">
+              {{ e.lesson.period }} · {{ e.subject.short_name }} · {{ e.grade.short_name }}
+            </a>
+          {% endfor %}
+        </td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+</table>
+
+<p style="margin-top:20px"><a href="{% url 'my-day' %}">← My day</a></p>
+{% endblock %}

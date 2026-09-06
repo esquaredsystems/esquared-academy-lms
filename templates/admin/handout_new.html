@@ -1,0 +1,154 @@
+{% extends "admin/base_site.html" %}
+{% block title %}New handout · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .nh-head{margin:0 0 20px}
+  .nh-head h1{margin:0 0 4px;font-size:26px}
+  .nh-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  form.nh{max-width:620px}
+  .field{margin:0 0 18px}
+  .field label{display:block;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:0 0 6px}
+  .field input[type=text],.field input[type=date],.field input[type=number],
+  .field select,.field textarea{
+    width:100%;padding:10px 14px;border-radius:12px;font-size:14px;font-family:inherit;
+    border:1px solid var(--ac-line,#dcd3c4);background:var(--ac-card,#f9f4ed)}
+  .field textarea{min-height:80px}
+  .field .hint{font-size:12px;color:var(--ac-ink-3,#645c50);margin:5px 0 0}
+  .row2{display:flex;gap:14px}
+  .row2 .field{flex:1}
+  .check{display:flex;align-items:center;gap:9px;font-size:14px;margin:0 0 14px}
+  .check input{width:17px;height:17px}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+  .actions button{padding:11px 24px;border:0;border-radius:999px;cursor:pointer;
+    font-size:14px;background:var(--ac-accent,#c67139);color:#fff}
+  .actions button.ghost{background:transparent;color:var(--ac-accent-text,#8c491a);
+    border:1px solid var(--ac-line-strong,#c0b6a5)}
+  .actions a{align-self:center;font-size:13px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="nh-head">
+  <h1>New handout</h1>
+  <div class="sub">
+    {{ lesson.syllabus.subject }} · {{ lesson.syllabus.grade }} ·
+    {{ lesson.date|date:"l j F" }}, period {{ lesson.period }}
+  </div>
+</div>
+
+<form class="nh" method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+
+  <div class="field">
+    <label for="title">Title</label>
+    <input type="text" id="title" name="title" required
+           value="{{ defaults.topic }}"
+           placeholder="Quadratics — practice sheet">
+    <p class="hint">The subject, grade, year and code are taken from the lesson.</p>
+  </div>
+
+  <div class="row2">
+    <div class="field">
+      <label for="chapter">Chapter</label>
+      <input type="text" id="chapter" name="chapter" value="{{ defaults.chapter }}">
+    </div>
+    <div class="field">
+      <label for="topic_text">Topic</label>
+      <input type="text" id="topic_text" name="topic_text" value="{{ defaults.topic }}">
+    </div>
+  </div>
+  {% if defaults.chapter or defaults.topic %}
+    <p class="hint" style="margin:-10px 0 18px">
+      Taken from the first line of this lesson's lecture table. Change it if
+      the handout belongs somewhere else.
+    </p>
+  {% endif %}
+
+  <div class="field">
+    <label for="topic">Topic</label>
+    <select id="topic" name="topic">
+      <option value="">— none —</option>
+      {% for t in topics %}<option value="{{ t.pk }}">{{ t }}</option>{% endfor %}
+    </select>
+    <p class="hint">Tagging it puts the handout beside that topic on your day.</p>
+  </div>
+
+  <div class="field">
+    <label for="sheet">The sheet students get</label>
+    <input type="file" id="sheet" name="sheet" multiple>
+    <p class="hint">PDF, Word, an image — whatever you will print.</p>
+  </div>
+
+  <div class="field">
+    <label for="scheme">Answer scheme (staff only)</label>
+    <input type="file" id="scheme" name="scheme" multiple>
+    <p class="hint">Never given out. Optional now; needed before marking is automated.</p>
+  </div>
+
+  <div class="row2">
+    <div class="field">
+      <label for="open_from">Open from</label>
+      <input type="datetime-local" id="open_from" name="open_from">
+      <p class="hint">Empty = as soon as it is posted.</p>
+    </div>
+    <div class="field">
+      <label class="check" style="margin:0 0 8px">
+        <input type="checkbox" id="allow_late" name="allow_late">
+        Allow late submissions
+      </label>
+      <div id="lateuntil" hidden>
+        <label for="cutoff_at">Until</label>
+        <input type="datetime-local" id="cutoff_at" name="cutoff_at">
+        <p class="hint">Empty = taken indefinitely, and marked late.</p>
+      </div>
+      <p class="hint" id="latehint">Off means the due date is the close.</p>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div class="field">
+      <label for="due_date">Due</label>
+      <input type="date" id="due_date" name="due_date" value="{{ today|date:'Y-m-d' }}">
+    </div>
+    <div class="field">
+      <label for="max_marks">Marks</label>
+      <input type="number" id="max_marks" name="max_marks" step="0.5" min="0" placeholder="20">
+    </div>
+    <div class="field">
+      <label for="max_rounds">Attempts</label>
+      <input type="number" id="max_rounds" name="max_rounds" min="1" max="9" value="3">
+      <p class="hint">Counting the first.</p>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="instructions">Instructions</label>
+    <textarea id="instructions" name="instructions"
+              placeholder="Answer every question. Show your working."></textarea>
+  </div>
+
+  <label class="check">
+    <input type="checkbox" name="is_assignment" checked>
+    Students hand work back from it
+  </label>
+
+  <div class="actions">
+    <button type="submit" name="activate" value="1">Create and hand out</button>
+    <button type="submit" class="ghost">Save as a draft</button>
+    <a href="{{ my_day_url }}">Cancel</a>
+  </div>
+</form>
+
+  <script>
+    (function () {
+      var box = document.getElementById("allow_late");
+      var until = document.getElementById("lateuntil");
+      var hint = document.getElementById("latehint");
+      if (!box || !until) { return; }
+      function sync() { until.hidden = !box.checked; hint.hidden = box.checked; }
+      sync();
+      box.addEventListener("change", sync);
+    })();
+  </script>
+{% endblock %}

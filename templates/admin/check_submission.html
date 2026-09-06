@@ -1,0 +1,125 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Checking {{ submission.code }} · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .cs-head{margin:0 0 20px}
+  .cs-head h1{margin:0 0 4px;font-size:24px}
+  .cs-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  .cols{display:flex;gap:22px;flex-wrap:wrap}
+  .col{flex:1 1 320px;min-width:300px}
+  h2.sec{font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:0 0 10px;padding-bottom:5px;
+    border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  .files{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+  .files a{display:inline-flex;flex-direction:column;gap:2px;padding:9px 15px;
+    border-radius:10px;text-decoration:none;background:var(--ac-card,#f9f4ed);
+    border:1px solid var(--ac-line,#dcd3c4);color:var(--ac-ink,#201e1d);font-size:13px}
+  .files a:hover{border-color:var(--ac-accent,#c67139)}
+  .files small{font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50)}
+  .box{background:var(--ac-card,#f9f4ed);border:1px solid var(--ac-line,#dcd3c4);
+    border-radius:14px;padding:18px 20px}
+  .field{margin:0 0 16px}
+  .field label{display:block;font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:0 0 6px}
+  .field input[type=number],.field textarea{width:100%;padding:9px 13px;
+    border-radius:10px;font-size:14px;font-family:inherit;
+    border:1px solid var(--ac-line,#dcd3c4)}
+  .field textarea{min-height:90px}
+  .field .hint{font-size:12px;color:var(--ac-ink-3,#645c50);margin:5px 0 0}
+  .actions{display:flex;gap:10px;align-items:center;margin-top:6px}
+  .actions button{padding:11px 26px;border:0;border-radius:999px;cursor:pointer;
+    font-size:14px;background:#2f6b35;color:#fff}
+  .pill{font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;font-weight:600}
+  .pill.late{background:#fdf4e3;color:#8a5a12}
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ queue_url }}">Checking</a> &rsaquo; {{ submission.code }}
+  </div>
+{% endblock %}
+
+{% block content %}
+<div class="cs-head">
+  <h1>{{ student.full_name }}</h1>
+  <div class="sub">
+    {{ student.admission_no }} · {{ handout.syllabus.grade }} ·
+    {{ handout.code }} — {{ handout.topic_text|default:handout.title }} ·
+    handed in {{ submission.time_submitted|date:"j M, H:i" }}
+    {% if submission.is_late %}<span class="pill late">Late</span>{% endif %}
+    {% if submission.round_no > 1 %} · attempt {{ submission.round_no }}{% endif %}
+  </div>
+</div>
+
+<div class="cols">
+  <div class="col">
+    <h2 class="sec">What the student handed in</h2>
+    <div class="files">
+      {% for f in work %}
+        <a href="{{ f.url }}" target="_blank" rel="noopener">
+          {{ f.name }}<small>{{ f.size }}</small>
+        </a>
+      {% empty %}
+        <span style="color:#8c2f2f">Nothing attached — this needs looking at.</span>
+      {% endfor %}
+    </div>
+
+    <h2 class="sec">Reference</h2>
+    <div class="files">
+      {% for f in sheet %}
+        <a href="{{ f.url }}" download>{{ f.name }}<small>the sheet</small></a>
+      {% endfor %}
+      {% for f in scheme %}
+        <a href="{{ f.url }}" download>{{ f.name }}<small>answer scheme</small></a>
+      {% empty %}
+        <span style="color:var(--ac-ink-3,#645c50);font-size:13px">
+          No answer scheme attached to this handout.</span>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="col">
+    <h2 class="sec">Hand it back</h2>
+    <form class="box" method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+
+      <div class="field">
+        <label for="checked">The checked version</label>
+        <input type="file" id="checked" name="checked" multiple>
+        <p class="hint">
+          What the student reads to find their mistakes. Their teacher sees
+          the same file.
+        </p>
+        {% if checked %}
+          <div class="files" style="margin-top:10px">
+            {% for f in checked %}
+              <a href="{{ f.url }}" target="_blank" rel="noopener">
+                {{ f.name }}<small>already attached</small></a>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label for="awarded_marks">Marks{% if handout.max_marks %} out of {{ handout.max_marks }}{% endif %}</label>
+        <input type="number" id="awarded_marks" name="awarded_marks" step="0.5" min="0"
+               value="{{ submission.awarded_marks|default_if_none:'' }}">
+        <p class="hint">Arrived at however the rubric says.</p>
+      </div>
+
+      <div class="field">
+        <label for="feedback">A note (optional)</label>
+        <textarea id="feedback" name="feedback">{{ submission.feedback }}</textarea>
+      </div>
+
+      <div class="actions">
+        <button type="submit">Hand back checked</button>
+        <a href="{{ queue_url }}">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

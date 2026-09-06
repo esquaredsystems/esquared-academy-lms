@@ -1,0 +1,71 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Home · {{ block.super }}{% endblock %}
+
+{% block breadcrumbs %}<div class="breadcrumbs">Home</div>{% endblock %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  .hm-head{margin:0 0 24px}
+  .hm-head h1{margin:0 0 4px;font-size:28px}
+  .hm-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  .tiles{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  .tile{display:block;text-decoration:none;padding:20px 22px;border-radius:16px;
+    background:var(--ac-card,#f9f4ed);border:1px solid var(--ac-line,#dcd3c4);
+    color:var(--ac-ink,#201e1d)}
+  .tile:hover{border-color:var(--ac-accent,#c67139)}
+  .tile h2{margin:0 0 6px;font-size:18px}
+  .tile p{margin:0;font-size:13px;color:var(--ac-ink-3,#645c50)}
+  .tile .count{display:block;margin-top:12px;font-size:26px;font-weight:700;
+    font-variant-numeric:tabular-nums}
+  .tile .count small{font-size:12px;font-weight:400;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ac-ink-3,#645c50);margin-left:6px}
+  .tile.alert{border-color:#d9b877;background:#fdf4e3}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hm-head">
+  <h1>{% if teacher %}{{ teacher.user.get_full_name|default:teacher.user.username }}{% else %}Home{% endif %}</h1>
+  <div class="sub">{{ today|date:"l j F Y" }}</div>
+</div>
+
+<div class="tiles">
+  <a class="tile" href="{% url 'my-day' %}">
+    <h2>My day</h2>
+    <p>Today's classes, materials and logging.</p>
+    <span class="count">{{ lessons_today }}<small>lesson{{ lessons_today|pluralize }} today</small></span>
+  </a>
+
+  <a class="tile" href="{% url 'my-subjects' %}">
+    <h2>My subjects</h2>
+    <p>Every class you take, and how far ahead it is prepared.</p>
+    <span class="count">{{ syllabi_count }}<small>across {{ grades|length }} grade{{ grades|pluralize }}</small></span>
+  </a>
+
+  <a class="tile" href="{% url 'assignments' %}">
+    <h2>Assignments</h2>
+    <p>Every handout you have set, newest first, class by class.</p>
+    <span class="count">{{ outstanding_work }}<small>still to hand in</small></span>
+  </a>
+
+  <a class="tile" href="{% url 'calendar' %}">
+    <h2>Calendar</h2>
+    <p>Your lessons, month by month.</p>
+    <span class="count">{{ lessons_week }}<small>this week</small></span>
+  </a>
+
+  <a class="tile" href="{% url 'browse' %}">
+    <h2>Course</h2>
+    <p>Grade, subject, topic — down to lectures, assignments and who is in each class.</p>
+    <span class="count">{{ students }}<small>students</small></span>
+  </a>
+
+  {% if unlogged %}
+    <a class="tile alert" href="{% url 'my-day' %}">
+      <h2>Not logged</h2>
+      <p>Classes you taught but never wrote up.</p>
+      <span class="count">{{ unlogged }}<small>lesson{{ unlogged|pluralize }}</small></span>
+    </a>
+  {% endif %}
+</div>
+{% endblock %}

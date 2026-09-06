@@ -310,6 +310,160 @@ class SyllabusTopicViewSet(AuditedModelViewSet):
     ordering_fields = ["sort_order"]
 
 
+class TimetableSlotViewSet(AuditedModelViewSet):
+    """The weekly pattern. Lessons are created from it, not by editing it."""
+
+    serializer_class = serializers.TimetableSlotSerializer
+    filterset_fields = ["syllabus", "teacher", "day_of_week", "period"]
+    ordering_fields = ["day_of_week", "period"]
+
+
+class LessonViewSet(AuditedModelViewSet):
+    """
+    One class on one date.
+
+    The review workflow is three actions rather than a writable `status`,
+    so who submitted and who approved are recorded rather than typed:
+
+        POST /api/lessons/{id}/submit/
+        POST /api/lessons/{id}/approve/
+        POST /api/lessons/{id}/return_for_changes/
+    """
+
+    serializer_class = serializers.LessonSerializer
+    filterset_fields = ["syllabus", "teacher", "date", "period", "status"]
+    ordering_fields = ["date", "period", "status"]
+
+    @extend_schema(
+        request=None,
+        responses=serializers.LessonSerializer,
+        description="Hand the lesson to a head for review.",
+    )
+    @action(detail=True, methods=["post"])
+    def submit(self, request, pk=None):
+        lesson = self.get_object()
+        if lesson.status == models.LessonStatus.APPROVED:
+            raise ValidationError("This lesson is already approved.")
+        lesson.submit(user=self._user())
+        return Response(serializers.LessonSerializer(lesson).data)
+
+    @extend_schema(
+        request=None,
+        responses=serializers.LessonSerializer,
+        description="Approve the lesson. From here it is course content.",
+    )
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        lesson = self.get_object()
+        if not access.may_approve_lessons(request.user):
+            raise PermissionDenied(
+                "Approving a lesson is reserved for Head of Department, "
+                "Academic Admin and Admin. A teacher may submit, not approve."
+            )
+        lesson.approve(user=self._user())
+        return Response(serializers.LessonSerializer(lesson).data)
+
+    @extend_schema(
+        request=None,
+        responses=serializers.LessonSerializer,
+        description="Send the lesson back to its teacher, with a reason.",
+    )
+    @action(detail=True, methods=["post"], url_path="return_for_changes")
+    def return_for_changes(self, request, pk=None):
+        lesson = self.get_object()
+        if not access.may_approve_lessons(request.user):
+            raise PermissionDenied(
+                "Returning a lesson is reserved for Head of Department, "
+                "Academic Admin and Admin."
+            )
+        comment = (request.data or {}).get("review_comment", "")
+        lesson.return_for_changes(user=self._user(), comment=comment)
+        return Response(serializers.LessonSerializer(lesson).data)
+
+
+class LectureItemViewSet(AuditedModelViewSet):
+    """One row of a lesson's lecture table."""
+
+    serializer_class = serializers.LectureItemSerializer
+    filterset_fields = ["lesson", "attachment"]
+    ordering_fields = ["sort_order"]
+
+
+class LessonTopicViewSet(AuditedModelViewSet):
+    """A topic a lesson planned to cover, and whether it was."""
+
+    serializer_class = serializers.LessonTopicSerializer
+    filterset_fields = ["lesson", "topic", "planned", "covered"]
+    ordering_fields = ["sort_order"]
+
+
+class HandoutViewSet(AuditedModelViewSet):
+    """
+    A sheet given out in class, and the work handed back from it.
+
+        POST /api/handouts/{id}/activate/   hand it out to the class
+        POST /api/handouts/{id}/close/      stop accepting work
+        GET  /api/handouts/{id}/completion/ who has handed in
+    """
+
+    serializer_class = serializers.HandoutSerializer
+    filterset_fields = ["syllabus", "status", "is_assignment", "due_date"]
+    ordering_fields = ["due_date", "code", "status"]
+
+    @extend_schema(request=None, responses=serializers.HandoutSerializer,
+                   description="Hand it out. The class sees it from now on.")
+    @action(detail=True, methods=["post"])
+    def activate(self, request, pk=None):
+        handout = self.get_object()
+        handout.activate(user=self._user())
+        return Response(serializers.HandoutSerializer(handout).data)
+
+    @extend_schema(request=None, responses=serializers.HandoutSerializer,
+                   description="Stop accepting work.")
+    @action(detail=True, methods=["post"])
+    def close(self, request, pk=None):
+        handout = self.get_object()
+        handout.close(user=self._user())
+        return Response(serializers.HandoutSerializer(handout).data)
+
+    @extend_schema(responses=None, description="Submitted and outstanding counts.")
+    @action(detail=True, methods=["get"])
+    def completion(self, request, pk=None):
+        return Response(self.get_object().completion())
+
+
+class HandoutLessonViewSet(AuditedModelViewSet):
+    """Which lessons a handout belongs to."""
+
+    serializer_class = serializers.HandoutLessonSerializer
+    filterset_fields = ["handout", "lesson"]
+    ordering_fields = ["sort_order"]
+
+
+class HandoutSheetViewSet(AuditedModelViewSet):
+    """One version of a handout's sheet."""
+
+    serializer_class = serializers.HandoutSheetSerializer
+    filterset_fields = ["handout", "version_no"]
+    ordering_fields = ["version_no"]
+
+
+class HandoutExtensionViewSet(AuditedModelViewSet):
+    """A later deadline for one student on one handout."""
+
+    serializer_class = serializers.HandoutExtensionSerializer
+    filterset_fields = ["handout", "enrolment"]
+    ordering_fields = ["extended_to"]
+
+
+class SubmissionViewSet(AuditedModelViewSet):
+    """One student's work for one handout, in one round."""
+
+    serializer_class = serializers.SubmissionSerializer
+    filterset_fields = ["handout", "enrolment", "state", "round_no"]
+    ordering_fields = ["time_submitted", "round_no", "state"]
+
+
 class StudentSubjectViewSet(AuditedModelViewSet):
     """A student's subjects: automatic for core syllabi, chosen in the terminal grade."""
 

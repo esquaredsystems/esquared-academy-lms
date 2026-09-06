@@ -1,0 +1,85 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Extension · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .ex-head{margin:0 0 18px}
+  .ex-head h1{margin:0 0 4px;font-size:24px}
+  .ex-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  .when{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin:0 0 22px}
+  .when label{display:block;font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:0 0 5px}
+  .when input{padding:9px 13px;border-radius:10px;font-size:14px;
+    border:1px solid var(--ac-line,#dcd3c4);background:var(--ac-card,#f9f4ed)}
+  .when input[type=text]{min-width:260px}
+  table.roll{width:100%;border-collapse:collapse;font-size:14px}
+  table.roll th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);padding:7px 10px;
+    border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.roll td{padding:9px 10px;border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.roll tr.in td{color:var(--ac-ink-3,#645c50)}
+  .yes{color:#2f6b35;font-weight:600}
+  .no{color:#8c2f2f}
+  .actions{display:flex;gap:10px;margin-top:22px;align-items:center}
+  .actions button{padding:11px 24px;border:0;border-radius:999px;cursor:pointer;
+    font-size:14px;background:var(--ac-accent,#c67139);color:#fff}
+  .hint{font-size:12px;color:var(--ac-ink-3,#645c50)}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ex-head">
+  <h1>Extension</h1>
+  <div class="sub">
+    {{ handout.code }} · {{ handout.title }} ·
+    due {% if due %}{{ due|date:"D j M, H:i" }}{% else %}—{% endif %}
+    {% if cutoff %} · closes {{ cutoff|date:"D j M, H:i" }}{% endif %}
+    · {{ outstanding }} outstanding
+  </div>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+
+  <div class="when">
+    <div>
+      <label for="extended_to">New deadline for those ticked</label>
+      <input type="datetime-local" id="extended_to" name="extended_to"
+             value="{{ default_when }}" required>
+    </div>
+    <div>
+      <label for="reason">Reason (optional)</label>
+      <input type="text" id="reason" name="reason" placeholder="Absent, sports fixture…">
+    </div>
+  </div>
+
+  <table class="roll">
+    <tr><th style="width:34px"></th><th>Student</th><th>Admission no</th>
+      <th>Handed in</th><th>Extension now</th></tr>
+    {% for r in roll %}
+      <tr class="{% if r.handed_in %}in{% endif %}">
+        <td>
+          <input type="checkbox" name="enrolment" value="{{ r.enrolment.pk }}"
+                 {% if r.checked %}checked{% endif %}>
+        </td>
+        <td>{{ r.student.full_name }}</td>
+        <td>{{ r.student.admission_no }}</td>
+        <td>{% if r.handed_in %}<span class="yes">Yes</span>
+            {% else %}<span class="no">Not yet</span>{% endif %}</td>
+        <td>{% if r.extension %}{{ r.extension.extended_to|date:"j M, H:i" }}{% else %}—{% endif %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="5">Nobody is enrolled in this grade.</td></tr>
+    {% endfor %}
+  </table>
+
+  <div class="actions">
+    <button type="submit">Give the extension</button>
+    <a href="{{ back_url }}">Cancel</a>
+  </div>
+  <p class="hint">
+    Everyone who has not handed in is ticked to begin with. Unticking someone
+    who already has an extension takes it away. The handout, its code and its
+    marks stay the same for everyone — only the date moves.
+  </p>
+</form>
+{% endblock %}

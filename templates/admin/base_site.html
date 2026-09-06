@@ -7,3 +7,18 @@
   {{ block.super }}
   <link rel="stylesheet" href="{% static 'css/academy-admin.css' %}">
 {% endblock %}
+
+{% comment %}
+  The "App" step in the breadcrumb pointed at the per-application index,
+  which now redirects home. Stripped here rather than by overriding half
+  a dozen of Django's page templates.
+{% endcomment %}
+{% block footer %}
+  {{ block.super }}
+  {% comment %}
+    The ?v= is a cache buster. Browsers hold on to static files hard, and
+    a fixed URL means an edited script silently keeps serving the old
+    copy. Bump the number whenever breadcrumbs.js changes.
+  {% endcomment %}
+  <script src="{% static 'js/breadcrumbs.js' %}?v=4"></script>
+{% endblock %}

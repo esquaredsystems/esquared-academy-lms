@@ -1,0 +1,101 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}Materials · {{ block.super }}{% endblock %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <style>
+    .mat-head { margin:0 0 20px; }
+    .mat-head h1 { margin:0 0 4px; font-size:24px; }
+    .mat-head .sub { color:var(--ac-ink-3,#645c50); font-size:14px; }
+
+    .drop {
+      background:var(--ac-card,#f9f4ed); border:2px dashed var(--ac-line-strong,#c0b6a5);
+      border-radius:16px; padding:26px; text-align:center; margin:0 0 26px;
+    }
+    .drop input[type=file] { font-size:14px; }
+    .drop .hint { color:var(--ac-ink-3,#645c50); font-size:13px; margin:10px 0 16px; }
+    .drop button {
+      padding:10px 26px; border:0; border-radius:999px; cursor:pointer;
+      background:var(--ac-accent,#c67139); color:#fff; font-size:14px;
+    }
+    .drop .title-row { margin:14px 0 0; }
+    .drop input[type=text] {
+      padding:8px 14px; border-radius:999px; min-width:280px;
+      border:1px solid var(--ac-line,#dcd3c4);
+    }
+
+    .mat-list { list-style:none; padding:0; margin:0; }
+    .mat-list li {
+      display:flex; align-items:center; gap:14px; padding:12px 16px;
+      background:var(--ac-card,#f9f4ed); border:1px solid var(--ac-line,#dcd3c4);
+      border-radius:12px; margin:0 0 10px;
+    }
+    .mat-list .name { font-weight:600; }
+    .mat-list .meta { font-size:12px; color:var(--ac-ink-3,#645c50);
+      text-transform:uppercase; letter-spacing:.05em; }
+    .mat-list .open { margin-left:auto; text-decoration:none;
+      padding:7px 16px; border-radius:999px; font-size:13px;
+      border:1px solid var(--ac-line-strong,#c0b6a5); color:var(--ac-accent-text,#8c491a); }
+    .empty { color:var(--ac-ink-3,#645c50); font-size:14px; }
+    .backlinks { margin-top:26px; display:flex; gap:18px; font-size:14px; }
+  </style>
+{% endblock %}
+
+{% block content %}
+  <div class="mat-head">
+    <h1>Materials</h1>
+    <div class="sub">
+      {{ lesson.syllabus }} · {{ lesson.date|date:"l j F Y" }} · period {{ lesson.period }}
+      {% if lesson.title %} · {{ lesson.title }}{% endif %}
+    </div>
+  </div>
+
+  <div class="scope">
+    <span class="lbl">Attach to</span>
+    <a class="pick {% if not entry %}on{% endif %}" href="{{ lesson_only_url }}">
+      The lesson<small>shown under every topic</small>
+    </a>
+    {% for t in topics %}
+      <a class="pick {% if entry and t.entry.pk == entry.pk %}on{% endif %}" href="{{ t.url }}">
+        {{ t.entry.topic }}<small>{{ t.count }} file{{ t.count|pluralize }}</small>
+      </a>
+    {% endfor %}
+  </div>
+
+  <form class="drop" method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {% if entry %}<input type="hidden" name="entry" value="{{ entry.pk }}">{% endif %}
+    <input type="file" name="files" multiple required>
+    <p class="hint">
+      {% if entry %}Notes for <b>{{ entry.topic }}</b>.{% else %}Slides and anything else for the whole lesson.{% endif %}
+      Choose more than one if you like.
+    </p>
+    <p class="title-row">
+      <input type="text" name="title" placeholder="A name for it (optional)">
+    </p>
+    <p style="margin:16px 0 0"><button type="submit">Attach to this lesson</button></p>
+  </form>
+
+  <h2 style="font-size:14px;letter-spacing:.09em;text-transform:uppercase;color:var(--ac-ink-3,#645c50)">
+    Attached to {% if entry %}{{ entry.topic }}{% else %}the lesson{% endif %}
+  </h2>
+  <ul class="mat-list">
+    {% for m in materials %}
+      <li>
+        <span>
+          <span class="name">{{ m.name }}</span><br>
+          <span class="meta">{{ m.kind }}{% if m.size %} · {{ m.size }}{% endif %}</span>
+        </span>
+        <a class="open" href="{{ m.url }}" target="_blank" rel="noopener">Open</a>
+      </li>
+    {% empty %}
+      <li style="border-style:dashed"><span class="empty">Nothing attached yet.</span></li>
+    {% endfor %}
+  </ul>
+
+  <div class="backlinks">
+    <a href="{{ lesson_url }}">← Back to the lesson</a>
+    <a href="{{ my_day_url }}">My day</a>
+  </div>
+{% endblock %}

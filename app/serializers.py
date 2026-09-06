@@ -88,6 +88,22 @@ StudentSubjectSerializer = build_serializer(models.StudentSubject)
 TopicResultSerializer = build_serializer(models.TopicResult)
 TeachingAssignmentSerializer = build_serializer(models.TeachingAssignment)
 
+# --- timetable and lessons -------------------------------------------
+TimetableSlotSerializer = build_serializer(models.TimetableSlot)
+#: `status` and the review stamps stay writable here for the admin's
+#: sake, but the API's own workflow goes through the submit / approve /
+#: return actions on LessonViewSet, which record who did it.
+LessonSerializer = build_serializer(models.Lesson)
+LessonTopicSerializer = build_serializer(models.LessonTopic)
+LectureItemSerializer = build_serializer(models.LectureItem)
+
+# --- handouts and submissions ----------------------------------------
+HandoutSerializer = build_serializer(models.Handout)
+HandoutLessonSerializer = build_serializer(models.HandoutLesson)
+SubmissionSerializer = build_serializer(models.Submission)
+HandoutExtensionSerializer = build_serializer(models.HandoutExtension)
+HandoutSheetSerializer = build_serializer(models.HandoutSheet)
+
 # --- prompt library ---------------------------------------------------
 EvaluationPromptSerializer = build_serializer(models.EvaluationPrompt)
 PromptVersionSerializer = build_serializer(models.PromptVersion)

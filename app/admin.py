@@ -923,6 +923,309 @@ class PaperVersionAdmin(AuditAdmin):
             self.message_user(request, f"Created {new}.", messages.SUCCESS)
 
 
+# ---------------------------------------------------------------------
+# Timetable and lessons
+# ---------------------------------------------------------------------
+@admin.register(models.TimetableSlot)
+class TimetableSlotAdmin(AuditAdmin):
+    """The weekly pattern. Set once; a swapped day edits the lesson, not this."""
+
+    list_display = ("syllabus", "day_of_week", "period", "start_time", "end_time",
+                    "teacher", "live")
+    list_filter = ("day_of_week", "syllabus__academic_year", "syllabus__grade",
+                   IncludeVoidedFilter)
+    search_fields = ("period", "syllabus__subject__short_name")
+    raw_id_fields = ("syllabus", "teacher")
+
+
+class LectureItemInline(admin.TabularInline):
+    """The lecture table, for anyone who prefers the admin to My day."""
+
+    model = models.LectureItem
+    extra = 0
+    fields = ("unit", "chapter", "topic", "attachment", "sort_order", "voided")
+    raw_id_fields = ("attachment",)
+
+
+class LessonTopicInline(admin.TabularInline):
+    """What the lesson plans to cover, and what it actually did."""
+
+    model = models.LessonTopic
+    extra = 0
+    fields = ("topic", "planned", "covered", "carried", "note",
+              "sort_order", "voided")
+    raw_id_fields = ("topic",)
+
+
+@admin.register(models.Lesson)
+class LessonAdmin(AuditAdmin):
+    """
+    One class on one date. Drafted by its teacher, approved by a head.
+
+    The two actions below are the review queue: approving is a separate
+    act from editing, so a teacher cannot publish their own material.
+    """
+
+    list_display = ("date", "period", "syllabus", "teacher", "title",
+                    "status", "logged", "time_taught", "covered_pct", "live")
+    list_filter = ("status", "date", "syllabus__grade", "syllabus__subject",
+                   IncludeVoidedFilter)
+    search_fields = ("title", "plan", "log")
+    raw_id_fields = ("syllabus", "slot", "teacher", "submitted_by", "reviewed_by")
+    date_hierarchy = "date"
+    inlines = (LectureItemInline, LessonTopicInline, AttachmentLinkInline)
+    actions = AuditAdmin.actions + ("submit_selected", "approve_selected",
+                                    "return_selected")
+    fieldsets = (
+        (None, {"fields": ("syllabus", "slot", "teacher", "date", "period", "title")}),
+        ("Plan", {
+            "fields": ("plan", "plan_format", "materials_link"),
+            "description": "Prepared in advance. This is what the head reviews.",
+        }),
+        ("After the lesson", {
+            "fields": ("log", "log_format", "date_taught",
+                       "teaching_seconds", "timer_started_at"),
+            "description": "Written up after teaching. An empty date_taught means "
+                           "the lesson was never logged.",
+        }),
+        ("Review", {
+            "fields": ("status", "date_submitted", "submitted_by",
+                       "date_reviewed", "reviewed_by", "review_comment"),
+        }),
+        ("Audit", {"fields": AUDIT_FIELDS}),
+    )
+    readonly_fields = AUDIT_READONLY + (
+        "date_submitted", "submitted_by", "date_reviewed", "reviewed_by",
+        "materials_link",
+    )
+
+    @admin.display(boolean=True, description="Logged")
+    def logged(self, obj):
+        return obj.is_logged
+
+    @admin.display(description="Time")
+    def time_taught(self, obj):
+        return obj.elapsed_display if obj.elapsed_seconds else "—"
+
+    @admin.display(description="Topics done")
+    def covered_pct(self, obj):
+        counts = obj.topic_counts
+        return f"{counts['done']}/{counts['total']}" if counts["total"] else "—"
+
+    @admin.display(description="Lecture material")
+    def materials_link(self, obj):
+        """
+        A way out of this form to the upload page.
+
+        The inline below only links to a file that already exists, so it
+        is no help to someone holding a slide deck.
+        """
+        if obj is None or obj.pk is None:
+            return "Save the lesson first, then attach files."
+        url = reverse("lesson-materials", args=[obj.pk])
+        count = obj.attachments.filter(voided=False).count()
+        label = f"{count} attached — add or open" if count else "Upload a file"
+        return format_html('<a class="button" href="{}">{}</a>', url, label)
+
+    @admin.action(description="Submit selected lessons for review")
+    def submit_selected(self, request, queryset):
+        count = 0
+        for lesson in queryset:
+            if lesson.status in (models.LessonStatus.DRAFT,
+                                 models.LessonStatus.RETURNED):
+                lesson.submit(user=request.user)
+                count += 1
+        self.message_user(request, f"{count} lesson(s) submitted.", messages.SUCCESS)
+
+    @admin.action(description="Approve selected lessons")
+    def approve_selected(self, request, queryset):
+        if not access.may_approve_lessons(request.user):
+            self.message_user(
+                request,
+                "Approving a lesson is reserved for Head of Department, "
+                "Academic Admin and Admin. A teacher may submit, not approve.",
+                messages.ERROR,
+            )
+            return
+        count = 0
+        for lesson in queryset:
+            if lesson.status != models.LessonStatus.APPROVED:
+                lesson.approve(user=request.user)
+                count += 1
+        self.message_user(request, f"{count} lesson(s) approved.", messages.SUCCESS)
+
+    @admin.action(description="Return selected lessons for changes")
+    def return_selected(self, request, queryset):
+        if not access.may_approve_lessons(request.user):
+            self.message_user(
+                request,
+                "Returning a lesson is reserved for Head of Department, "
+                "Academic Admin and Admin.",
+                messages.ERROR,
+            )
+            return
+        count = 0
+        for lesson in queryset:
+            lesson.return_for_changes(user=request.user)
+            count += 1
+        self.message_user(
+            request,
+            f"{count} lesson(s) returned. Open each one to add a reason.",
+            messages.SUCCESS,
+        )
+
+
+@admin.register(models.LessonTopic)
+class LessonTopicAdmin(AuditAdmin):
+    list_display = ("lesson", "topic", "planned", "covered", "carried",
+                    "note", "sort_order", "live")
+    list_filter = ("planned", "covered", "carried", IncludeVoidedFilter)
+    raw_id_fields = ("lesson", "topic")
+
+
+class HandoutLessonInline(admin.TabularInline):
+    """Which lessons this sheet belongs to. Usually one; sometimes a week."""
+
+    model = models.HandoutLesson
+    extra = 0
+    fields = ("lesson", "sort_order", "voided")
+    raw_id_fields = ("lesson",)
+
+
+@admin.register(models.Handout)
+class HandoutAdmin(AuditAdmin):
+    """
+    A sheet given out in class, and the work handed back from it.
+
+    Most of the work happens on its own page — printing, handing out and
+    watching the class hand in — reached from the button below or from
+    My day. This form is for the details behind it.
+    """
+
+    list_display = ("code", "title", "syllabus", "due_date", "status",
+                    "handed_in", "live")
+    list_filter = ("status", "is_assignment", "syllabus__grade",
+                   "syllabus__subject", IncludeVoidedFilter)
+    search_fields = ("code", "title", "instructions")
+    raw_id_fields = ("syllabus", "topic", "activated_by")
+    date_hierarchy = "due_date"
+    inlines = (HandoutLessonInline, AttachmentLinkInline)
+    actions = AuditAdmin.actions + ("activate_selected", "close_selected")
+    fieldsets = (
+        (None, {"fields": ("syllabus", "chapter", "topic_text", "topic",
+                           "code", "title", "open_page")}),
+        ("The work", {
+            "fields": ("instructions", "instructions_format", "is_assignment",
+                       "open_from", "due_date", "allow_late", "cutoff_at",
+                       "max_marks", "max_rounds"),
+            "description": "max_rounds counts the first hand-in. Three means "
+                           "one attempt and two redoes.",
+        }),
+        ("Handing out", {"fields": ("status", "date_activated", "activated_by")}),
+        ("Audit", {"fields": AUDIT_FIELDS}),
+    )
+    readonly_fields = AUDIT_READONLY + ("code", "date_activated", "activated_by",
+                                        "open_page")
+
+    @admin.display(description="Handed in")
+    def handed_in(self, obj):
+        counts = obj.completion()
+        return f"{counts['submitted']} / {counts['total']}"
+
+    @admin.display(description="Print, hand out, track")
+    def open_page(self, obj):
+        if obj is None or obj.pk is None:
+            return "Save it first, then attach the sheet and hand it out."
+        return format_html(
+            '<a class="button" href="{}">Open the handout page</a>',
+            reverse("handout", args=[obj.pk]),
+        )
+
+    @admin.action(description="Hand out to the class")
+    def activate_selected(self, request, queryset):
+        count = 0
+        for handout in queryset:
+            if handout.status != models.HandoutStatus.ACTIVE:
+                handout.activate(user=request.user)
+                count += 1
+        self.message_user(
+            request, f"{count} handout(s) are now open to students.", messages.SUCCESS
+        )
+
+    @admin.action(description="Close — no more work accepted")
+    def close_selected(self, request, queryset):
+        count = 0
+        for handout in queryset:
+            handout.close(user=request.user)
+            count += 1
+        self.message_user(request, f"{count} handout(s) closed.", messages.SUCCESS)
+
+
+@admin.register(models.HandoutLesson)
+class HandoutLessonAdmin(AuditAdmin):
+    list_display = ("handout", "lesson", "sort_order", "live")
+    raw_id_fields = ("handout", "lesson")
+
+
+@admin.register(models.HandoutSheet)
+class HandoutSheetAdmin(AuditAdmin):
+    """Each version of a sheet, and when it was replaced."""
+
+    list_display = ("handout", "version_no", "attachment", "replaced_on",
+                    "note", "live")
+    list_filter = (IncludeVoidedFilter,)
+    raw_id_fields = ("handout", "attachment")
+    readonly_fields = AUDIT_READONLY + ("replaced_on",)
+
+
+@admin.register(models.HandoutExtension)
+class HandoutExtensionAdmin(AuditAdmin):
+    """A later deadline for one student. Same handout, same marks column."""
+
+    list_display = ("handout", "student_name", "extended_to", "reason", "live")
+    list_filter = (IncludeVoidedFilter,)
+    search_fields = ("handout__code", "enrolment__student__first_name",
+                     "enrolment__student__last_name")
+    raw_id_fields = ("handout", "enrolment", "granted_by")
+
+    @admin.display(description="Student")
+    def student_name(self, obj):
+        return obj.enrolment.student.full_name
+
+
+@admin.register(models.Submission)
+class SubmissionAdmin(AuditAdmin):
+    """
+    One student's work for one handout, in one round.
+
+    Append-only in spirit: a redo is a new row, never an edit of the last
+    one, so "right first time" survives as a fact about the student.
+    """
+
+    list_display = ("code", "student_name", "handout", "round_no", "sheet_version",
+                    "state", "late", "awarded_marks", "time_submitted", "live")
+    list_filter = ("state", "round_no", "handout__syllabus__grade",
+                   IncludeVoidedFilter)
+    search_fields = ("code", "enrolment__student__first_name",
+                     "enrolment__student__last_name",
+                     "enrolment__student__admission_no")
+    raw_id_fields = ("handout", "enrolment", "marked_by")
+    date_hierarchy = "time_submitted"
+    inlines = (AttachmentLinkInline,)
+    readonly_fields = AUDIT_READONLY + ("code", "time_submitted")
+
+    @admin.display(description="Student", ordering="enrolment__student__last_name")
+    def student_name(self, obj):
+        return obj.enrolment.student.full_name
+
+    @admin.display(description="Late")
+    def late(self, obj):
+        if not obj.is_late:
+            return "—"
+        hours, minutes = divmod(obj.minutes_late, 60)
+        return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
+
+
 @admin.register(models.PaperItem)
 class PaperItemAdmin(AuditAdmin):
     list_display = ("paper_version", "slot", "question", "max_mark", "prompt_version", "live")
