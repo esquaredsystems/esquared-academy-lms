@@ -4,6 +4,7 @@ Show one account's login state and, optionally, set its password.
     python manage.py reset_login reviewer_test_1            # just report
     python manage.py reset_login reviewer_test_1 --set      # report, then set a password
     python manage.py reset_login new_user_1      --set --create  # create + set password
+    python manage.py reset_login 26070108 --set --password Aariz  # non-interactive (scripted)
 
 Written for the moment a test account "won't accept the password". It
 prints the three things the admin login actually checks — the account
@@ -15,6 +16,11 @@ account is active and, for a staff role, staff.
 --create: if the account does not exist yet, create it (unusable password),
 then continue as normal. Useful for the first setup of non-teacher roles
 where import_setup hasn't pre-created the account.
+
+--password: supply the new password directly instead of being prompted.
+Intended for bulk/scripted setup where getpass cannot be driven. Note the
+value is passed as a command-line argument, so avoid it for secrets that
+must not appear in a process listing.
 
 This is a development helper for test accounts. It is not for changing a
 real person's password without their knowledge.
@@ -40,10 +46,17 @@ class Command(BaseCommand):
             "--create", action="store_true",
             help="Create the account if it does not exist, then proceed.",
         )
+        parser.add_argument(
+            "--password",
+            default=None,
+            help="Set this password non-interactively instead of prompting "
+                 "(implies --set). Intended for bulk/scripted setup.",
+        )
 
     def handle(self, *args, **options):
         username = options["username"]
-        do_set    = options["set"]
+        pw_arg    = options["password"]
+        do_set    = options["set"] or pw_arg is not None
         do_create = options["create"]
 
         user = models.AppUser.all_objects.filter(username=username).first()
@@ -106,10 +119,15 @@ class Command(BaseCommand):
             self.stdout.write("Run again with --set to choose a password and fix these.")
             return
 
-        password = getpass("New password: ")
-        again = getpass("Again: ")
-        if not password or password != again:
-            raise CommandError("Passwords did not match. Nothing was changed.")
+        if pw_arg is not None:
+            password = pw_arg
+            if not password:
+                raise CommandError("Empty --password. Nothing was changed.")
+        else:
+            password = getpass("New password: ")
+            again = getpass("Again: ")
+            if not password or password != again:
+                raise CommandError("Passwords did not match. Nothing was changed.")
 
         user.set_password(password)
         user.is_active = True
