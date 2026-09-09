@@ -1,0 +1,121 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Post a notice · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .pn-head{margin:0 0 22px}
+  .pn-head h1{margin:0 0 4px;font-size:26px}
+  .pn-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  .panel{background:var(--ac-card,#f9f4ed);border:1px solid var(--ac-line,#dcd3c4);
+    border-radius:14px;padding:20px;margin:0 0 24px}
+  .row{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 14px}
+  .fld{display:flex;flex-direction:column;gap:5px;flex:1 1 220px}
+  .fld label{font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50)}
+  .fld input,.fld select,.fld textarea{padding:9px 11px;border-radius:9px;
+    border:1px solid var(--ac-line,#dcd3c4);background:#fff;font-size:14px;
+    font-family:inherit}
+  .fld textarea{min-height:70px;resize:vertical}
+  .fld .hint{font-size:12px;color:var(--ac-ink-3,#645c50)}
+  button.go{padding:10px 24px;border-radius:999px;border:0;cursor:pointer;
+    background:var(--ac-accent,#c67139);color:#fff;font-size:14px}
+  button.rm{padding:5px 12px;border-radius:999px;border:1px solid var(--ac-line,#dcd3c4);
+    background:#fff;color:#8c2f2f;font-size:12px;cursor:pointer}
+  h2.sec{font-size:14px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:30px 0 12px}
+  table.board{width:100%;border-collapse:collapse;font-size:13px;background:#fff;
+    border:1px solid var(--ac-line,#dcd3c4);border-radius:10px;overflow:hidden}
+  table.board th,table.board td{text-align:left;padding:9px 12px;
+    border-bottom:1px solid var(--ac-line,#e6dfd2);vertical-align:top}
+  table.board thead th{font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);background:var(--ac-card-2,#f3ede2)}
+  .pill{display:inline-block;font-size:11px;padding:2px 9px;border-radius:999px}
+  .pill.live{background:#dcefdc;color:#2f6b35}
+  .pill.off{background:#eee;color:#666}
+  .empty{color:var(--ac-ink-3,#645c50);font-size:14px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pn-head">
+  <h1>Post a notice</h1>
+  <div class="sub">Exam timetables and syllabi go on every student's notice board.</div>
+</div>
+
+<form class="panel" method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="post">
+  <div class="row">
+    <div class="fld" style="flex:2 1 320px">
+      <label for="title">Heading</label>
+      <input id="title" name="title" required
+             placeholder="Quarterly exam timetable — October 2026">
+    </div>
+    <div class="fld">
+      <label for="category">What is it</label>
+      <select id="category" name="category">
+        {% for value, label in categories %}
+          <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="fld">
+      <label for="grade">Class</label>
+      <select id="grade" name="grade">
+        <option value="">All classes</option>
+        {% for g in grades %}<option value="{{ g.pk }}">{{ g }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="row">
+    <div class="fld" style="flex:1 1 260px">
+      <label for="file">File</label>
+      <input id="file" name="file" type="file" accept=".pdf,image/*">
+      <span class="hint">PDF or a photo. This is the notice itself.</span>
+    </div>
+    <div class="fld" style="flex:2 1 320px">
+      <label for="body">A line of context (optional)</label>
+      <textarea id="body" name="body"
+                placeholder="Bring your own calculator. Papers start at 8:30."></textarea>
+    </div>
+  </div>
+  <button class="go" type="submit">Post it</button>
+</form>
+
+<h2 class="sec">On the board</h2>
+{% if rows %}
+<table class="board">
+  <thead>
+    <tr><th>Heading</th><th>What</th><th>Class</th><th>Posted</th><th>File</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+      <tr>
+        <td>
+          {{ r.notice.title }}
+          {% if r.live %}<span class="pill live">Live</span>
+          {% else %}<span class="pill off">Not showing</span>{% endif %}
+        </td>
+        <td>{{ r.notice.get_category_display }}</td>
+        <td>{% if r.notice.grade %}{{ r.notice.grade }}{% else %}All{% endif %}</td>
+        <td>{{ r.notice.date_posted|date:"j M Y" }}</td>
+        <td>
+          {% for f in r.files %}
+            <a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a><br>
+          {% empty %}—{% endfor %}
+        </td>
+        <td>
+          <form method="post" style="margin:0">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="remove">
+            <input type="hidden" name="notice" value="{{ r.notice.pk }}">
+            <button class="rm" type="submit">Take down</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <p class="empty">Nothing posted yet.</p>
+{% endif %}
+{% endblock %}

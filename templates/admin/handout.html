@@ -47,6 +47,15 @@
   .files .meta{font-size:11px;color:var(--ac-ink-3,#645c50);text-transform:uppercase}
   .up{background:var(--ac-card,#f9f4ed);border:1px dashed var(--ac-line-strong,#c0b6a5);
     border-radius:14px;padding:16px 18px;margin:0 0 24px}
+  .whatfor{max-width:70ch;font-size:13px;line-height:1.55;
+    color:var(--ac-ink-3,#645c50);margin:14px 0 0}
+  .hint{max-width:70ch;font-size:12px;color:var(--ac-ink-3,#645c50);margin:6px 0 0}
+  .filerow{display:inline-flex;align-items:center;gap:6px}
+  .filerow form.rm{display:inline;margin:0}
+  .filerow form.rm button{border:1px solid var(--ac-line,#e2ddd3);background:#fff;
+    color:#9a3b3b;border-radius:6px;line-height:1;padding:5px 8px;cursor:pointer;
+    font-size:12px}
+  .filerow form.rm button:hover{background:#fdf1f1;border-color:#e8c9c9}
   h2.sec{font-size:14px;letter-spacing:.09em;text-transform:uppercase;
     color:var(--ac-ink-3,#645c50);margin:28px 0 12px}
 </style>
@@ -69,13 +78,33 @@
   <div class="card"><b>{{ completion.outstanding }}</b><span>Outstanding</span></div>
 </div>
 
+<p class="whatfor">
+  Everything about one handout in one place: the sheet the class gets, the
+  answer scheme only staff see, who has handed in, and extensions. The
+  chapter, topic, dates and sheet can also be set straight from the
+  assignments table in <a href="{{ my_day_url }}">My day</a> — this page is
+  where you come when you want the rest.
+</p>
+
 <h2 class="sec">The sheet</h2>
 {% if sheet %}
   <div class="files">
     {% for f in sheet %}
-      <a href="{{ f.url }}" target="_blank" rel="noopener">
-        <span>{{ f.name }}</span><span class="meta">{{ f.kind }} · {{ f.size }}</span>
-      </a>
+      <span class="filerow">
+        <a href="{{ f.url }}" target="_blank" rel="noopener">
+          <span>{{ f.name }}</span><span class="meta">{{ f.kind }} · {{ f.size }}</span>
+        </a>
+        {% if may_change %}
+          <form method="post" class="rm"
+                onsubmit="return confirm('Remove {{ f.name|escapejs }} as the sheet? The class will have no sheet until you attach another. The file itself is kept.')">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="detach">
+            <input type="hidden" name="role" value="handout">
+            <input type="hidden" name="attachment" value="{{ f.attachment.pk }}">
+            <button type="submit" title="Remove this file">✕</button>
+          </form>
+        {% endif %}
+      </span>
     {% endfor %}
   </div>
 {% else %}
@@ -93,6 +122,10 @@
     </select>
     <button type="submit" class="ghost">Attach</button>
   </form>
+  <p class="hint">
+    Attaching a new sheet replaces the current one and keeps the old as a
+    version, so work already handed in still points at the paper it answered.
+  </p>
 {% endif %}
 
 {% if versions|length > 1 %}
@@ -114,15 +147,31 @@
   </p>
 {% endif %}
 
+<h2 class="sec">Answer scheme <span style="text-transform:none;letter-spacing:0">(staff only)</span></h2>
 {% if scheme %}
-  <h2 class="sec">Answer scheme <span style="text-transform:none;letter-spacing:0">(staff only)</span></h2>
   <div class="files">
     {% for f in scheme %}
-      <a href="{{ f.url }}" target="_blank" rel="noopener">
-        <span>{{ f.name }}</span><span class="meta">{{ f.kind }} · {{ f.size }}</span>
-      </a>
+      <span class="filerow">
+        <a href="{{ f.url }}" target="_blank" rel="noopener">
+          <span>{{ f.name }}</span><span class="meta">{{ f.kind }} · {{ f.size }}</span>
+        </a>
+        {% if may_change %}
+          <form method="post" class="rm"
+                onsubmit="return confirm('Remove {{ f.name|escapejs }} from the answer scheme? The file itself is kept.')">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="detach">
+            <input type="hidden" name="role" value="scheme">
+            <input type="hidden" name="attachment" value="{{ f.attachment.pk }}">
+            <button type="submit" title="Remove this file">✕</button>
+          </form>
+        {% endif %}
+      </span>
     {% endfor %}
   </div>
+{% else %}
+  <p style="color:var(--ac-ink-3,#645c50)">
+    Nothing attached. Use the box above and pick “Answer scheme”.
+  </p>
 {% endif %}
 
 <div class="row">

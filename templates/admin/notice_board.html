@@ -1,0 +1,134 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Notice board · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .nb-head{margin:0 0 22px}
+  .nb-head h1{margin:0 0 4px;font-size:26px}
+  .nb-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  h2.sec{font-size:14px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:30px 0 12px}
+  .card{background:var(--ac-card,#f9f4ed);border:1px solid var(--ac-line,#dcd3c4);
+    border-radius:14px;padding:16px 20px;margin:0 0 12px}
+  .card h3{margin:0 0 4px;font-size:16px}
+  .card .where{color:var(--ac-ink-3,#645c50);font-size:13px;margin:0 0 8px}
+  .card .body{font-size:14px;margin:8px 0 0;color:var(--ac-ink-2,#474238)}
+  .pill{display:inline-block;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 10px;border-radius:999px;margin-left:8px}
+  .pill.due{background:#ffe9c7;color:#8a5a12}
+  .pill.done{background:#dcefdc;color:#2f6b35}
+  .pill.exam{background:#e7dcf3;color:#5a3b7a}
+  .files a{display:inline-block;padding:8px 16px;border-radius:10px;text-decoration:none;
+    background:var(--ac-card-2,#eee7db);border:1px solid var(--ac-line,#dcd3c4);
+    color:var(--ac-ink,#201e1d);font-size:13px;margin:8px 8px 0 0}
+  .files a .sz{color:var(--ac-ink-3,#645c50);font-size:11px;margin-left:6px}
+  .thumb{max-width:100%;border-radius:10px;border:1px solid var(--ac-line,#dcd3c4);
+    margin-top:10px;display:block}
+  .empty{color:var(--ac-ink-3,#645c50);font-size:14px;margin:0 0 8px}
+  .note{background:#fff6e2;border:1px solid #e8d5a8;border-radius:12px;
+    padding:12px 16px;margin:0 0 20px;font-size:14px}
+  .go{display:inline-block;margin-top:8px;font-size:13px;text-decoration:none;
+    color:var(--ac-accent,#c67139);font-weight:600}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="nb-head">
+  <h1>Notice board</h1>
+  <div class="sub">
+    {% if student %}{{ student.full_name }}{% if enrolment %} · {{ enrolment.grade }}{% endif %}{% endif %}
+  </div>
+</div>
+
+{% if not enrolment %}
+  <div class="note">Your account is not linked to a student record yet, so there is nothing to show.</div>
+{% endif %}
+
+<h2 class="sec">Assignments</h2>
+{% for a in assignments %}
+  <div class="card">
+    <h3>{{ a.handout.title }}
+      {% if a.handed_in %}<span class="pill done">Handed in</span>
+      {% else %}<span class="pill due">To do</span>{% endif %}
+    </h3>
+    <p class="where">
+      {{ a.subject }} · {{ a.kind_label }}
+      {% if a.due %} · due {{ a.due|date:"D j M, g:i a" }}{% endif %}
+    </p>
+    {% if not a.handed_in %}
+      <a class="go" href="{% url 'my-work' %}">Hand it in →</a>
+    {% endif %}
+  </div>
+{% empty %}
+  <p class="empty">Nothing set at the moment.</p>
+{% endfor %}
+
+<h2 class="sec">Exam timetable</h2>
+{% for r in timetables %}
+  <div class="card">
+    <h3>{{ r.notice.title }}<span class="pill exam">Timetable</span></h3>
+    <p class="where">
+      {% if r.notice.grade %}{{ r.notice.grade }}{% else %}All classes{% endif %}
+      · posted {{ r.notice.date_posted|date:"j M Y" }}
+      {% if r.notice.posted_by %} by {{ r.notice.posted_by.get_full_name|default:r.notice.posted_by.username }}{% endif %}
+    </p>
+    {% if r.notice.body %}<p class="body">{{ r.notice.body }}</p>{% endif %}
+    <div class="files">
+      {% for f in r.files %}
+        {% if f.is_image %}
+          <img class="thumb" src="{{ f.url }}" alt="{{ f.name }}">
+        {% else %}
+          <a href="{{ f.url }}" target="_blank" rel="noopener">
+            {{ f.name }}<span class="sz">{{ f.size }}</span>
+          </a>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+{% empty %}
+  <p class="empty">No exam timetable has been posted yet.</p>
+{% endfor %}
+
+<h2 class="sec">Exam syllabus</h2>
+{% for r in syllabi %}
+  <div class="card">
+    <h3>{{ r.notice.title }}<span class="pill exam">Syllabus</span></h3>
+    <p class="where">
+      {% if r.notice.grade %}{{ r.notice.grade }}{% else %}All classes{% endif %}
+      · posted {{ r.notice.date_posted|date:"j M Y" }}
+    </p>
+    {% if r.notice.body %}<p class="body">{{ r.notice.body }}</p>{% endif %}
+    <div class="files">
+      {% for f in r.files %}
+        {% if f.is_image %}
+          <img class="thumb" src="{{ f.url }}" alt="{{ f.name }}">
+        {% else %}
+          <a href="{{ f.url }}" target="_blank" rel="noopener">
+            {{ f.name }}<span class="sz">{{ f.size }}</span>
+          </a>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+{% empty %}
+  <p class="empty">No exam syllabus has been posted yet.</p>
+{% endfor %}
+
+{% if general %}
+  <h2 class="sec">Notices</h2>
+  {% for r in general %}
+    <div class="card">
+      <h3>{{ r.notice.title }}</h3>
+      <p class="where">
+        {% if r.notice.grade %}{{ r.notice.grade }}{% else %}All classes{% endif %}
+        · {{ r.notice.date_posted|date:"j M Y" }}
+      </p>
+      {% if r.notice.body %}<p class="body">{{ r.notice.body }}</p>{% endif %}
+      <div class="files">
+        {% for f in r.files %}
+          <a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+{% endif %}
+{% endblock %}

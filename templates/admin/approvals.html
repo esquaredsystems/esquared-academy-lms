@@ -1,0 +1,148 @@
+{% extends "admin/base_site.html" %}
+{% block title %}To approve · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .ap-head{margin:0 0 6px}
+  .ap-head h1{margin:0 0 4px;font-size:26px}
+  .ap-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  .cls{margin:20px 0 0}
+  .cls > h2{font-size:13px;letter-spacing:.04em;margin:0 0 10px;
+    padding-bottom:7px;border-bottom:2px solid var(--ac-line,#dcd3c4)}
+  .cls > h2 .g{color:var(--ac-ink-3,#645c50);font-weight:400}
+  .job{background:var(--ac-card,#f9f4ed);border:1px solid var(--ac-line,#dcd3c4);
+    border-radius:14px;padding:16px 18px;margin:0 0 12px}
+  .job .top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .job h3{margin:0;font-size:16px}
+  .job .who{color:var(--ac-ink-3,#645c50);font-size:13px}
+  .job .mark{margin-left:auto;font-size:15px;font-weight:600}
+  .files{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 0}
+  .files a{display:inline-block;padding:7px 13px;border-radius:9px;text-decoration:none;
+    background:var(--ac-card-2,#eee7db);border:1px solid var(--ac-line,#dcd3c4);
+    color:var(--ac-ink,#201e1d);font-size:13px}
+  .files a.work{background:transparent}
+  table.bd{border-collapse:collapse;font-size:13px;margin:12px 0 0;width:100%;max-width:520px}
+  table.bd th,table.bd td{text-align:left;padding:5px 10px;border-bottom:1px solid var(--ac-line,#e6dfd2)}
+  table.bd thead th{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ac-ink-3,#645c50)}
+  table.bd tr.dropped td:nth-child(2){color:#8c2f2f;font-weight:600}
+  .acts{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin:14px 0 0}
+  .acts button{padding:9px 20px;border-radius:999px;border:0;cursor:pointer;font-size:14px}
+  .acts .approve{background:#2f6b35;color:#fff}
+  .acts .review{background:var(--ac-card-2,#eee7db);color:var(--ac-ink-2,#474238);
+    border:1px solid var(--ac-line,#dcd3c4)}
+  .acts a.look{font-size:13px;color:var(--ac-accent-text,#8c491a);margin-left:2px}
+  .sendback{display:none;margin:10px 0 0;gap:8px;align-items:center;flex-wrap:wrap}
+  .sendback.open{display:flex}
+  .sendback input{flex:1 1 260px;padding:8px 12px;border-radius:9px;font-size:13px;
+    border:1px solid var(--ac-line,#dcd3c4)}
+  .sendback button{padding:8px 16px;border-radius:999px;border:0;cursor:pointer;font-size:13px}
+  .sendback .examiner{background:#c67139;color:#fff}
+  .sendback .student{background:#8a5a12;color:#fff}
+  .selfcheck{margin:10px 0 0;padding:8px 12px;border-radius:9px;font-size:12.5px;
+    background:#fdf4e3;border:1px solid #e6d3a8;color:#8a5a12}
+  .empty{color:var(--ac-ink-3,#645c50);font-size:15px;margin-top:20px}
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}<div class="breadcrumbs">To approve</div>{% endblock %}
+
+{% block content %}
+<div class="ap-head">
+  <h1>To approve</h1>
+  <div class="sub">
+    {% if total %}
+      {{ total }} mark{{ total|pluralize }} the examiner has checked, waiting for you
+      to release to the students.
+    {% else %}
+      Nothing waiting for approval. When the examiner checks work, it appears here first.
+    {% endif %}
+  </div>
+</div>
+
+{% for c in classes %}
+  <div class="cls">
+    <h2>{{ c.syllabus.grade }} <span class="g">· {{ c.syllabus.subject.full_name|default:c.syllabus.subject.short_name }}</span></h2>
+
+    {% for r in c.rows %}
+      <div class="job">
+        <div class="top">
+          <h3>{{ r.student.full_name }}</h3>
+          <span class="who">{{ r.student.admission_no }} ·
+            {{ r.handout.topic_text|default:r.handout.title }} ·
+            <code>{{ r.handout.code }}</code>
+            {% if r.marked_by %}· checked by {{ r.marked_by.get_full_name|default:r.marked_by.username }}{% endif %}</span>
+          {% if r.marks %}<span class="mark">{{ r.marks.awarded|floatformat:"-2" }} / {{ r.marks.out_of|floatformat:"-2" }}</span>
+          {% elif r.submission.awarded_marks is not None %}<span class="mark">{{ r.submission.awarded_marks|floatformat:"-2" }}</span>{% endif %}
+        </div>
+
+        <div class="files">
+          {% for f in r.checked %}
+            <a href="{{ f.url }}" target="_blank" rel="noopener">Checked paper — {{ f.name }}</a>
+          {% endfor %}
+          {% for f in r.work %}
+            <a class="work" href="{{ f.url }}" target="_blank" rel="noopener">What they handed in — {{ f.name }}</a>
+          {% endfor %}
+        </div>
+
+        {% if r.marks %}
+          <table class="bd">
+            <thead><tr><th>Part</th><th>Got</th><th>Out of</th><th>Note</th></tr></thead>
+            <tbody>
+              {% for line in r.submission.lines %}
+                <tr{% if line.lost %} class="dropped"{% endif %}>
+                  <td>{{ line.label }}</td>
+                  <td>{{ line.awarded|floatformat:"-2" }}</td>
+                  <td>{{ line.out_of|floatformat:"-2" }}</td>
+                  <td>{{ line.comment|default:"—" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+        {% if r.submission.feedback %}
+          <p class="who" style="margin-top:8px"><b>Examiner's note:</b> {{ r.submission.feedback }}</p>
+        {% endif %}
+        {% if r.self_check %}
+          <p class="selfcheck">You checked this one yourself — approving it is your
+            own sign-off, not a second opinion.</p>
+        {% endif %}
+
+        <div class="acts">
+          <form method="post" style="display:inline">
+            {% csrf_token %}
+            <input type="hidden" name="submission" value="{{ r.submission.pk }}">
+            <button class="approve" name="action" value="approve">Approve &amp; release</button>
+          </form>
+          <button type="button" class="review" data-back="sb-ex-{{ r.submission.pk }}">Send back to examiner</button>
+          <button type="button" class="review" data-back="sb-st-{{ r.submission.pk }}">Ask student to redo</button>
+          <a class="look" href="{{ r.check_url }}">Open the full checking screen →</a>
+        </div>
+
+        <form method="post" class="sendback" id="sb-ex-{{ r.submission.pk }}">
+          {% csrf_token %}
+          <input type="hidden" name="submission" value="{{ r.submission.pk }}">
+          <input type="text" name="reason" placeholder="What should the examiner look at again?">
+          <button class="examiner" name="action" value="send_back">Send back to examiner</button>
+        </form>
+        <form method="post" class="sendback" id="sb-st-{{ r.submission.pk }}">
+          {% csrf_token %}
+          <input type="hidden" name="submission" value="{{ r.submission.pk }}">
+          <input type="text" name="reason" placeholder="What should the student put right?">
+          <button class="student" name="action" value="request_redo">Ask student to redo</button>
+        </form>
+      </div>
+    {% endfor %}
+  </div>
+{% empty %}
+  <p class="empty">Nothing waiting. Checked work lands here for your sign-off before
+    the students see it.</p>
+{% endfor %}
+
+<script>
+  document.querySelectorAll('.review[data-back]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var f = document.getElementById(b.dataset.back);
+      if (f) { f.classList.toggle('open'); var i = f.querySelector('input[type=text]'); if (i) i.focus(); }
+    });
+  });
+</script>
+{% endblock %}

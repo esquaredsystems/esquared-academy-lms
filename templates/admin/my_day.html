@@ -22,6 +22,26 @@
     }
     .day-nav a:hover { border-color:var(--ac-line-strong,#c0b6a5); }
 
+    .jump { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 20px; }
+    .jump a { display:inline-flex; flex-direction:column; gap:1px; padding:8px 15px;
+      border-radius:12px; text-decoration:none; font-size:13px;
+      background:var(--ac-card,#f9f4ed); border:1px solid var(--ac-line,#dcd3c4);
+      color:var(--ac-ink,#201e1d); }
+    .jump a:hover { border-color:var(--ac-accent,#c67139); }
+    .jump a.running { border-color:#7aa87f; background:#e9f3e9; }
+    .jump a.done { opacity:.6; }
+    .jump a b { font-size:12px; letter-spacing:.05em; color:var(--ac-ink-3,#645c50); }
+    .jump a span { font-weight:600; }
+    .jump a em { font-style:normal; font-size:10px; letter-spacing:.06em;
+      text-transform:uppercase; color:var(--ac-ink-3,#645c50); }
+    .jump a em.on { color:#2f6b35; font-weight:700; }
+    .jump a em.todo { color:#8a5a12; font-weight:700; }
+
+    .lesson-card .where .fold { margin-left:10px; border:1px solid var(--ac-line,#dcd3c4);
+      background:transparent; border-radius:999px; padding:3px 12px; cursor:pointer;
+      font-size:11px; letter-spacing:.05em; text-transform:uppercase;
+      color:var(--ac-ink-3,#645c50); }
+    .lesson-card.folded { opacity:.85; }
     .lesson-card {
       background:var(--ac-card,#f9f4ed); border:1px solid var(--ac-line,#dcd3c4);
       border-radius:14px; padding:16px 18px; margin:0 0 12px;
@@ -165,7 +185,12 @@
     .rowform { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
     .rowform input[type=text] { padding:6px 10px; border-radius:8px; font-size:13px;
       border:1px solid var(--ac-line,#dcd3c4); min-width:110px; flex:1 1 110px; }
-    .rowform input[type=file] { font-size:12px; flex:1 1 180px; }
+    .rowform input[type=file] { font-size:12px; }
+    .rowform .pick { display:inline-flex; align-items:center; gap:6px;
+      font-size:12px; color:var(--ac-ink-3,#645c50); flex:1 1 240px;
+      border:1px solid var(--ac-line,#e2ddd3); border-radius:8px;
+      padding:5px 8px; background:#fff; }
+    td .none { color:var(--ac-ink-3,#645c50); }
     .rowform button { border:0; border-radius:999px; cursor:pointer; font-size:13px;
       padding:6px 12px; }
     .rowform .tick { background:#2f6b35; color:#fff; }
@@ -220,8 +245,15 @@
       color:var(--ac-accent-text,#8c491a); font-size:13px; }
     .topic .carried { font-size:10px; letter-spacing:.06em; text-transform:uppercase;
       background:#ffe9c7; color:#8a5a12; padding:2px 8px; border-radius:999px; }
-    .logrow .note { display:block; width:100%; margin:8px 0 0; padding:7px 12px;
-      border-radius:8px; border:1px solid var(--ac-line,#dcd3c4); font-size:13px; }
+    .logcomment { margin:10px 0 0; }
+    .logcomment .addcomment { border:1px dashed var(--ac-line-strong,#c0b6a5);
+      background:transparent; color:var(--ac-accent-text,#8c491a); cursor:pointer;
+      border-radius:999px; padding:5px 14px; font-size:12px; }
+    .logcomment .comment { display:none; width:100%; margin:0; padding:8px 12px;
+      border-radius:8px; border:1px solid var(--ac-line,#dcd3c4); font-size:13px;
+      font-family:inherit; }
+    .logcomment.open .addcomment { display:none; }
+    .logcomment.open .comment { display:block; }
     .logrow ul.children { list-style:none; margin:6px 0 0 26px; padding:0 0 0 14px;
       border-left:2px solid var(--ac-line,#dcd3c4); }
     .logrow ul.children li { padding:3px 0; }
@@ -282,8 +314,22 @@
     </div>
   {% endif %}
 
-    {% for row in today_rows %}
-    <div class="lesson-card" id="lesson-{{ row.lesson.pk }}">
+    {% if today_rows|length > 1 %}
+    <nav class="jump">
+      {% for row in today_rows %}
+        <a href="#lesson-{{ row.lesson.pk }}" class="{{ row.timer_state }}{% if row.finished %} done{% endif %}">
+          <b>P{{ row.lesson.period }}</b>
+          <span>{{ row.subject.short_name }} · {{ row.grade.short_name }}</span>
+          {% if row.finished %}<em>logged</em>
+          {% elif row.timer_state == "running" %}<em class="on">running</em>
+          {% elif row.needs_log %}<em class="todo">to log</em>{% endif %}
+        </a>
+      {% endfor %}
+    </nav>
+  {% endif %}
+
+  {% for row in today_rows %}
+    <div class="lesson-card{% if row.finished %} folded{% endif %}" id="lesson-{{ row.lesson.pk }}">
       <div class="period"><b>{{ row.lesson.period }}</b><span>Period</span></div>
       <div class="body">
         <h3>
@@ -291,7 +337,12 @@
           <span class="tag {{ row.lesson.status }}">{{ row.lesson.get_status_display }}</span>
           {% if row.needs_log %}<span class="tag todo">Not logged</span>{% endif %}
         </h3>
-        <p class="where">{{ row.subject }} · {{ row.grade }}</p>
+        <p class="where">
+          {{ row.subject }} · {{ row.grade }}
+          <button type="button" class="fold" hidden>Show</button>
+        </p>
+
+        <div class="cardbody">
 
         {% if flash_lesson == row.lesson.pk|stringformat:"s" %}
           <div class="flash {% if flash_kind == 'nothing_to_carry' %}warn{% endif %}">
@@ -436,7 +487,7 @@
           <tr>
             <th class="pen"></th>
             <th>Chapter</th><th>Topic</th><th>Handout file</th>
-            <th>Code</th><th>Posted?</th><th></th>
+            <th>Answer scheme</th><th>Code</th><th>Posted?</th><th></th>
           </tr>
 
           {% for a in row.assignment_rows %}
@@ -454,6 +505,12 @@
                   {% endif %}
                   <small>{{ a.file_size }}</small>
                 {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if a.scheme_url %}
+                  <a href="{{ a.scheme_url }}" download
+                     title="Staff only — students never see this.">{{ a.scheme_name }}</a>
+                {% else %}<span class="none">—</span>{% endif %}
               </td>
               <td><a href="{{ a.url }}">{{ a.handout.code }}</a></td>
               <td>
@@ -498,7 +555,7 @@
             </tr>
             <tr class="editing" hidden>
               <td class="pen"></td>
-              <td colspan="6">
+              <td colspan="7">
                 <form method="post" enctype="multipart/form-data" class="rowform">
                   {% csrf_token %}
                   <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
@@ -506,7 +563,8 @@
                   <input type="hidden" name="handout" value="{{ a.handout.pk }}">
                   <input type="text" name="chapter" placeholder="Chapter" value="{{ a.handout.chapter }}">
                   <input type="text" name="topic_text" placeholder="Topic" value="{{ a.handout.topic_text }}">
-                  <input type="file" name="file">
+                  <label class="pick">Sheet <input type="file" name="file"></label>
+                  <label class="pick">Answer scheme <input type="file" name="scheme"></label>
                   <span class="dates">
                     <label>Open from
                       <input type="datetime-local" name="open_from"
@@ -527,8 +585,14 @@
                   <button type="button" class="cancel" title="Cancel">✕</button>
                   <button name="action" value="assign_delete" class="del" title="Remove">🗑</button>
                 </form>
-                {% if a.file_name %}
-                  <p class="keep">Leaving the file empty keeps {{ a.file_name }}.</p>
+                {% if a.file_name or a.scheme_name %}
+                  <p class="keep">
+                    Leaving a box empty keeps what is there:
+                    {% if a.file_name %}sheet <b>{{ a.file_name }}</b>{% endif %}
+                    {% if a.file_name and a.scheme_name %},{% endif %}
+                    {% if a.scheme_name %}scheme <b>{{ a.scheme_name }}</b>{% endif %}.
+                    Files are removed on the handout page.
+                  </p>
                 {% endif %}
               </td>
             </tr>
@@ -536,7 +600,7 @@
 
           <tr class="adding" hidden>
             <td class="pen"></td>
-            <td colspan="6">
+            <td colspan="7">
               <form method="post" enctype="multipart/form-data" class="rowform">
                 {% csrf_token %}
                 <input type="hidden" name="lesson" value="{{ row.lesson.pk }}">
@@ -545,7 +609,8 @@
                        value="{{ row.defaults.chapter }}">
                 <input type="text" name="topic_text" placeholder="Topic"
                        value="{{ row.defaults.topic }}">
-                <input type="file" name="file">
+                <label class="pick">Sheet <input type="file" name="file"></label>
+                <label class="pick">Answer scheme <input type="file" name="scheme"></label>
                 <span class="dates">
                   <label>Open from <input type="datetime-local" name="open_from"></label>
                   <label>Due <input type="date" name="due_date"></label>
@@ -563,7 +628,7 @@
 
           <tr class="addrow">
             <td class="pen"></td>
-            <td colspan="6">
+            <td colspan="7">
               <button type="button" class="addbtn">+ Add a row</button>
               <a class="mini link" href="{{ row.new_handout_url }}">Full form →</a>
             </td>
@@ -609,10 +674,6 @@
                     {% endfor %}
                   </ul>
                 {% endif %}
-
-                <input type="text" name="note_{{ t.entry.pk }}" class="note"
-                       placeholder="Where did you get to?"
-                       value="{{ t.entry.note }}">
               </div>
             {% empty %}
               <p class="empty" style="margin:8px 0">
@@ -621,6 +682,13 @@
             {% endfor %}
 
             <p class="hintline">Tick what you finished.</p>
+
+            <div class="logcomment {% if row.lesson.log %}open{% endif %}">
+              <button type="button" class="addcomment">+ comment</button>
+              <textarea name="log_comment" class="comment" rows="2"
+                        placeholder="Anything about the class as a whole — pace, a topic to revisit, who was away.">{{ row.lesson.log }}</textarea>
+            </div>
+
             <div class="actions"><button type="submit">Save the log</button></div>
           </form>
 
@@ -696,6 +764,8 @@
           <a class="ghost" href="{{ row.materials_url }}">Files</a>
           {% if row.needs_plan %}<a class="ghost" href="{{ row.url }}">Add a plan</a>{% endif %}
         </div>
+
+        </div><!-- /cardbody -->
       </div>
     </div>
   {% empty %}
@@ -757,6 +827,39 @@
   <script>
     /* The clock is authoritative on the server; this only makes it tick
        on screen between page loads, so a teacher can see it moving. */
+    /* A class that has been taught and written up folds away, so what is
+       still to come stays prominent. The heading stays put, and the button
+       beside it opens it again. */
+    (function () {
+      Array.prototype.forEach.call(document.querySelectorAll(".lesson-card"), function (card) {
+        var body = card.querySelector(".cardbody");
+        var button = card.querySelector(".fold");
+        if (!body || !button) { return; }
+
+        button.hidden = false;
+        var folded = card.classList.contains("folded");
+
+        function sync() {
+          body.hidden = folded;
+          button.textContent = folded ? "Show" : "Hide";
+        }
+        sync();
+
+        button.addEventListener("click", function () {
+          folded = !folded;
+          sync();
+        });
+
+        /* Arriving from the calendar or after saving: whichever class was
+           asked for opens, however it was left. */
+        if (window.location.hash === "#" + card.id && folded) {
+          folded = false;
+          sync();
+          card.scrollIntoView({ block: "start" });
+        }
+      });
+    })();
+
     /* "Late submissions until" only means anything when late submissions
        are allowed, so the field follows the checkbox. */
     (function () {
@@ -815,6 +918,20 @@
             partRow.querySelector("input[type=text]").focus();
           });
         }
+      });
+    })();
+
+    /* "+ comment" reveals a single note for the whole log. One box, at the
+       end, only if the teacher wants it — not one per topic. */
+    (function () {
+      Array.prototype.forEach.call(document.querySelectorAll(".logcomment"), function (wrap) {
+        var button = wrap.querySelector(".addcomment");
+        var box = wrap.querySelector(".comment");
+        if (!button || !box) { return; }
+        button.addEventListener("click", function () {
+          wrap.classList.add("open");
+          box.focus();
+        });
       });
     })();
 

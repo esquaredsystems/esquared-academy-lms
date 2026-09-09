@@ -364,15 +364,29 @@ JET_SIDE_MENU_ITEMS = [
         {"name": "app.lesson", "permissions": ["app.view_lesson"]},
         {"name": "app.lessontopic", "permissions": ["app.view_lessontopic"]},
     ]},
+    # A student holds view_handout, so anything gated on it shows up in
+    # their menu. The pages that are not theirs are gated on the change
+    # permissions instead, which leaves a student with My work and
+    # nothing else to be puzzled by.
     {"label": "Handouts & work", "permissions": ["app.view_handout"], "items": [
-        {"label": "Assignments", "url": {"type": "reverse", "name": "assignments"},
-         "permissions": ["app.view_handout"]},
-        {"label": "Checking", "url": {"type": "reverse", "name": "checking-queue"},
-         "permissions": ["app.change_submission"]},
         {"label": "My work", "url": {"type": "reverse", "name": "my-work"},
          "permissions": ["app.view_handout"]},
-        {"name": "app.handout", "permissions": ["app.view_handout"]},
-        {"name": "app.submission", "permissions": ["app.view_submission"]},
+        # Gated on view_handout so a student sees it. Posting is gated on
+        # add_notice just below, which a student does not hold.
+        {"label": "Notice board", "url": {"type": "reverse", "name": "notice-board"},
+         "permissions": ["app.view_handout"]},
+        {"label": "Post a notice", "url": {"type": "reverse", "name": "post-notice"},
+         "permissions": ["app.add_notice"]},
+        {"label": "Assignments", "url": {"type": "reverse", "name": "assignments"},
+         "permissions": ["app.change_handout"]},
+        {"label": "To approve", "url": {"type": "reverse", "name": "approvals"},
+         "permissions": ["app.change_handout"]},
+        {"label": "Checking", "url": {"type": "reverse", "name": "checking-browse"},
+         "permissions": ["app.change_submission"]},
+        {"label": "What's waiting", "url": {"type": "reverse", "name": "checking-queue"},
+         "permissions": ["app.change_submission"]},
+        {"name": "app.handout", "permissions": ["app.change_handout"]},
+        {"name": "app.submission", "permissions": ["app.change_submission"]},
     ]},
     {"label": "Question bank", "permissions": ["app.view_question"], "items": [
         {"name": "app.question", "permissions": ["app.view_question"]},

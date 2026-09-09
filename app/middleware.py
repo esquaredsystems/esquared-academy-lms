@@ -19,7 +19,12 @@ from . import access
 
 
 class TeacherLandingMiddleware:
-    """Forward `/admin/` to `/admin/my-day/` for teaching-only accounts."""
+    """
+    Forward `/admin/` to the page that account actually came for.
+
+    A teacher gets their own home; a student gets My work. Neither has
+    any use for a dashboard of database tables.
+    """
 
     #: Roles that are given the dashboard instead: they run things, and
     #: the panels are what they came for.
@@ -34,6 +39,8 @@ class TeacherLandingMiddleware:
         self.get_response = get_response
         self.index = reverse("admin:index")
         self.landing = reverse("teacher-home")
+        self.student_landing = reverse("my-work")
+        self.examiner_landing = reverse("checking-browse")
 
     def __call__(self, request):
         if (
@@ -44,6 +51,13 @@ class TeacherLandingMiddleware:
             user = getattr(request, "user", None)
             if user is not None and user.is_authenticated and not user.is_superuser:
                 roles = access.role_names(user)
-                if access.TEACHING_STAFF in roles and not (roles & self.DASHBOARD_ROLES):
-                    return redirect(self.landing)
+                if not (roles & self.DASHBOARD_ROLES):
+                    if access.TEACHING_STAFF in roles:
+                        return redirect(self.landing)
+                    # A student's whole use of the system is one page.
+                    if access.STUDENT in roles:
+                        return redirect(self.student_landing)
+                    # An examiner's whole job is the checking screen.
+                    if access.MARKING_REVIEWER in roles:
+                        return redirect(self.examiner_landing)
         return self.get_response(request)

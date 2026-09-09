@@ -1463,3 +1463,53 @@ class AttendanceRecordAdmin(AuditAdmin):
     @admin.display(description="Student", ordering="enrolment__student__last_name")
     def student_name(self, obj):
         return shorten(str(obj.enrolment.student))
+
+
+# ---------------------------------------------------------------------
+# The notice board, and the marking service's record of its own work
+# ---------------------------------------------------------------------
+@admin.register(models.Notice)
+class NoticeAdmin(AuditAdmin):
+    list_display = ("title", "category", "grade", "academic_year",
+                    "date_posted", "posted_by", "live")
+    list_filter = ("category", "grade", "academic_year", IncludeVoidedFilter)
+    search_fields = ("title", "body")
+    raw_id_fields = ("posted_by",)
+    date_hierarchy = "date_posted"
+
+    fieldsets = (
+        (None, {"fields": ("title", "category", "grade", "academic_year", "body")}),
+        ("When it shows", {
+            "fields": ("published_from", "published_until"),
+            "description": "Both optional. Empty means from now, and forever.",
+        }),
+        ("Who posted it", {"fields": ("posted_by", "date_posted")}),
+    )
+
+
+@admin.register(models.AutogradeJob)
+class AutogradeJobAdmin(AuditAdmin):
+    """
+    A record of what the marking service was asked and what it returned.
+
+    Read-only on purpose. A mark is corrected by editing the mark line —
+    which records the person who changed it — never by rewriting what the
+    machine said it found. Keeping the two apart is what makes a disputed
+    mark answerable months later.
+    """
+
+    list_display = ("submission", "status", "confidence", "requested_at",
+                    "completed_at", "service_ref")
+    list_filter = ("status", IncludeVoidedFilter)
+    search_fields = ("submission__code", "service_ref")
+    raw_id_fields = ("submission",)
+    readonly_fields = AUDIT_READONLY + (
+        "submission", "status", "service_ref", "requested_at", "completed_at",
+        "confidence", "raw_response", "error",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

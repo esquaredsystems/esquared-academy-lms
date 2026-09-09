@@ -171,7 +171,9 @@ def _scope_to_students(model_name, queryset, student_ids):
         # reads as a bug, so anything a student or guardian should see
         # belongs here explicitly.
         "submission": "enrolment__student_id__in",
+        "markline": "submission__enrolment__student_id__in",
         "handoutextension": "enrolment__student_id__in",
+        "autogradejob": "submission__enrolment__student_id__in",
     }
     lookup = paths.get(model_name)
     if lookup is None:
@@ -215,6 +217,11 @@ def scope_queryset(user, queryset):
                           # not narrowed. Whose *work* it is, is.
                           "handout", "handoutlesson", "handoutsheet"}:
             return queryset
+        # The notice board is a class noticeboard, not per-student rows:
+        # scoping happens by grade in the view, so nothing is hidden here.
+        if model_name == "notice":
+            return queryset
+
         return _scope_to_students(model_name, queryset, [student.id])
 
     if GUARDIAN in roles:
@@ -225,7 +232,7 @@ def scope_queryset(user, queryset):
             return queryset.filter(status="approved")
         if model_name in {"grade", "subject", "topic", "syllabus", "syllabustopic",
                           "timetableslot", "lessontopic", "lectureitem",
-                          "handout", "handoutlesson", "handoutsheet"}:
+                          "handout", "handoutlesson", "handoutsheet", "notice"}:
             return queryset
         return _scope_to_students(model_name, queryset, wards)
 

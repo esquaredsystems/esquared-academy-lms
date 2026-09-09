@@ -129,6 +129,29 @@
   </div>
 
   <label class="check">
+    <label for="kind" style="display:block;margin:14px 0 5px;font-size:11px;
+      letter-spacing:.07em;text-transform:uppercase;color:#645c50">What is it</label>
+    <select id="kind" name="kind" style="padding:9px 11px;border-radius:9px;
+      border:1px solid #dcd3c4;background:#fff;font-size:14px;min-width:220px">
+      {% for value, label in kinds %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+    </select>
+    <p style="font-size:12px;color:#645c50;margin:6px 0 12px;max-width:52ch">
+      An exam paper goes straight to the examiner with its mark scheme and is
+      never shown to the class in advance. Exam marks are reported separately
+      from coursework.
+    </p>
+
+    <p style="font-size:12px;color:#645c50;margin:0 0 12px;max-width:52ch;
+      background:#f5f0e6;border:1px solid #e2d9c8;border-radius:9px;padding:10px 12px">
+      <b>You do not set a weight here.</b> This paper counts for whatever its
+      topic is worth on the syllabus, so rating a topic once is the only place
+      importance is ever entered. Tick below if this one is practice and should
+      not move the average at all.
+    </p>
+    <label style="display:block;margin:0 0 12px;font-size:13px">
+      <input type="checkbox" name="practice_only"> Practice only — mark it, but keep it out of the average
+    </label>
+
     <input type="checkbox" name="is_assignment" checked>
     Students hand work back from it
   </label>

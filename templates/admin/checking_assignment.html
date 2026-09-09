@@ -1,0 +1,101 @@
+{% extends "admin/base_site.html" %}
+{% block title %}{{ handout.code }} — checking · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .ck-head{margin:0 0 4px}
+  .ck-head h1{margin:0 0 4px;font-size:24px}
+  .ck-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  .back{font-size:13px;color:var(--ac-accent-text,#8c491a);text-decoration:none}
+  .cards{display:flex;gap:12px;margin:16px 0 4px;flex-wrap:wrap}
+  .card{background:var(--ac-card,#f9f4ed);border:1px solid var(--ac-line,#dcd3c4);
+    border-radius:12px;padding:12px 18px;min-width:110px}
+  .card b{display:block;font-size:22px}
+  .card span{font-size:12px;color:var(--ac-ink-3,#645c50)}
+  .card.warn b{color:#8c2f2f}
+  .files{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 0}
+  .files a{display:inline-flex;gap:6px;padding:8px 14px;border-radius:10px;
+    text-decoration:none;background:var(--ac-card,#f9f4ed);
+    border:1px solid var(--ac-line,#dcd3c4);color:var(--ac-ink,#201e1d);font-size:13px}
+  .files a.scheme{border-style:dashed}
+  table.q{width:100%;border-collapse:collapse;font-size:14px;margin-top:18px}
+  table.q th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);padding:8px 12px;border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  table.q td{padding:11px 12px;border-bottom:1px solid var(--ac-line,#dcd3c4);vertical-align:middle}
+  table.q a.go{display:inline-block;padding:7px 18px;border-radius:999px;
+    background:var(--ac-accent,#c67139);color:#fff;text-decoration:none;font-size:13px}
+  table.q a.go.quiet{background:var(--ac-card-2,#eee7db);color:var(--ac-ink-2,#474238)}
+  .pill{font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;font-weight:600}
+  .pill.late{background:#fdf4e3;color:#8a5a12}
+  .pill.wait{background:#fbe4e4;color:#8c2f2f}
+  .pill.done{background:#dcefdc;color:#2f6b35}
+  .pill.redo{background:#ffe9c7;color:#8a5a12}
+  .pill.appr{background:#e5e9f2;color:#3a4a6b}
+  .empty{color:var(--ac-ink-3,#645c50);font-size:14px}
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs"><a href="{{ browse_url }}">Checking</a> › {{ handout.code }}</div>
+{% endblock %}
+
+{% block content %}
+<a class="back" href="{{ browse_url }}">← All checking</a>
+<div class="ck-head" style="margin-top:8px">
+  <h1>{{ handout.topic_text|default:handout.title }}</h1>
+  <div class="sub">
+    {{ handout.syllabus.grade }} · {{ handout.syllabus.subject.full_name|default:handout.syllabus.subject.short_name }}
+    · <b>{{ handout.code }}</b>
+    {% if handout.due_date %} · due {{ handout.due_date|date:"l j F" }}{% endif %}
+    {% if handout.max_marks %} · out of {{ handout.max_marks }}{% endif %}
+  </div>
+</div>
+
+<div class="cards">
+  <div class="card {% if waiting %}warn{% endif %}"><b>{{ waiting }}</b><span>To check</span></div>
+  <div class="card"><b>{{ handed_in }}</b><span>Handed in</span></div>
+  <div class="card"><b>{{ class_total }}</b><span>In the class</span></div>
+</div>
+
+{% if sheet or scheme %}
+  <div class="files">
+    {% for f in sheet %}
+      <a href="{{ f.url }}" target="_blank" rel="noopener">The sheet — {{ f.name }}</a>
+    {% endfor %}
+    {% for f in scheme %}
+      <a class="scheme" href="{{ f.url }}" target="_blank" rel="noopener">Answer scheme — {{ f.name }}</a>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<table class="q">
+  <tr>
+    <th>Student</th><th>Handed in</th><th>On time</th><th>Status</th><th>Mark</th><th></th>
+  </tr>
+  {% for r in rows %}
+    <tr>
+      <td>{{ r.student.full_name }}<br>
+        <small style="color:var(--ac-ink-3,#645c50)">{{ r.student.admission_no }}{% if r.submission.round_no > 1 %} · attempt {{ r.submission.round_no }}{% endif %}</small></td>
+      <td>{{ r.submission.time_submitted|date:"j M, H:i" }}</td>
+      <td>{% if r.submission.is_late %}<span class="pill late">Late</span>{% else %}On time{% endif %}</td>
+      <td>
+        {% if r.status == "waiting" %}<span class="pill wait">Waiting</span>
+        {% elif r.status == "redo" %}<span class="pill redo">Redo (student)</span>
+        {% elif r.status == "approval" %}<span class="pill appr">With teacher</span>
+        {% elif r.status == "released" %}<span class="pill done">Released</span>
+        {% else %}<span class="pill done">Checked</span>{% endif %}
+      </td>
+      <td>
+        {% if r.marks %}{{ r.marks.awarded|floatformat:"-2" }} / {{ r.marks.out_of|floatformat:"-2" }}
+        {% elif r.submission.awarded_marks is not None %}{{ r.submission.awarded_marks|floatformat:"-2" }}
+        {% else %}—{% endif %}
+      </td>
+      <td><a class="go {% if r.status != 'waiting' %}quiet{% endif %}" href="{{ r.url }}">
+        {% if r.status == "waiting" %}Check{% else %}Open{% endif %}</a></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="empty">
+      Nobody has handed this in yet.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

@@ -38,12 +38,17 @@ from app.admin_views import (
     browse_view,
     check_submission_view,
     checking_queue_view,
+    checking_browse_view,
+    checking_assignment_view,
+    approvals_view,
     calendar_view,
     my_day_view,
     new_handout_view,
     my_subjects_view,
     teacher_home_view,
     my_work_view,
+    notice_board_view,
+    post_notice_view,
 )
 from django.views.generic import RedirectView
 from drf_spectacular.views import (
@@ -143,8 +148,22 @@ urlpatterns = [
     ),
     path(
         "admin/checking/",
+        admin.site.admin_view(lambda request: checking_browse_view(request, admin.site)),
+        name="checking-browse",
+    ),
+    path(
+        "admin/checking/waiting/",
         admin.site.admin_view(lambda request: checking_queue_view(request, admin.site)),
         name="checking-queue",
+    ),
+    path(
+        "admin/checking/assignment/<int:handout_id>/",
+        admin.site.admin_view(
+            lambda request, handout_id: checking_assignment_view(
+                request, handout_id, admin.site
+            )
+        ),
+        name="checking-assignment",
     ),
     path(
         "admin/submission/<int:submission_id>/check/",
@@ -159,6 +178,21 @@ urlpatterns = [
         "admin/my-work/",
         admin.site.admin_view(lambda request: my_work_view(request, admin.site)),
         name="my-work",
+    ),
+    path(
+        "admin/notice-board/",
+        admin.site.admin_view(lambda request: notice_board_view(request, admin.site)),
+        name="notice-board",
+    ),
+    path(
+        "admin/notice-board/post/",
+        admin.site.admin_view(lambda request: post_notice_view(request, admin.site)),
+        name="post-notice",
+    ),
+    path(
+        "admin/approvals/",
+        admin.site.admin_view(lambda request: approvals_view(request, admin.site)),
+        name="approvals",
     ),
     path(
         "admin/demo/",

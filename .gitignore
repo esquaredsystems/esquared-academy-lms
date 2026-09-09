@@ -185,3 +185,6 @@ cython_debug/
 
 # MacOS
 .DS_Store
+# Uploaded files and local scratch — not source.
+media/
+Claude outputs/

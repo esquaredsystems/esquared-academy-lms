@@ -48,6 +48,12 @@
     <span class="count">{{ outstanding_work }}<small>still to hand in</small></span>
   </a>
 
+  <a class="tile {% if to_approve %}alert{% endif %}" href="{% url 'approvals' %}">
+    <h2>To approve</h2>
+    <p>Marks the examiner has checked, waiting for you to release to the students.</p>
+    <span class="count">{{ to_approve }}<small>waiting</small></span>
+  </a>
+
   <a class="tile" href="{% url 'calendar' %}">
     <h2>Calendar</h2>
     <p>Your lessons, month by month.</p>

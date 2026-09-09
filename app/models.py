@@ -100,10 +100,21 @@ class HandoutStatus(models.TextChoices):
 
 
 class SubmissionState(models.TextChoices):
-    SUBMITTED = "submitted", "Submitted"
+    """
+    The life of one handed-in piece, from the desk it lands on next.
+
+    A student's work is checked by the examiner, then the mark is held for
+    the class teacher to approve — nothing reaches the student until the
+    teacher has signed it off. The teacher may instead send it back to the
+    examiner to re-check, or ask the student to do the work again.
+    """
+
+    SUBMITTED = "submitted", "Waiting for the examiner"
     GRADING = "grading", "Being marked"
-    MARKED = "marked", "Marked"
-    RETURNED = "returned", "Returned for redoing"
+    MARKED = "marked", "Checked — waiting for teacher approval"
+    SENT_BACK = "sent_back", "Sent back to the examiner"
+    APPROVED = "approved", "Approved — released to the student"
+    RETURNED = "returned", "Sent back to the student to redo"
     ACCEPTED = "accepted", "Accepted"
     REJECTED = "rejected", "Rejected — unreadable"
 
@@ -173,6 +184,73 @@ class NationalIdType(models.TextChoices):
     CNIC = "cnic", "CNIC"
     B_FORM = "b_form", "B-Form"
     PASSPORT = "passport", "Passport"
+
+
+class HandoutKind(models.TextChoices):
+    """
+    What kind of paper this is, which decides how it travels.
+
+    An ASSIGNMENT is set in class and handed back by the student; the
+    other three are sat under supervision. The difference matters in two
+    places: an exam paper is never shown to a class before it is sat, and
+    exam marks are aggregated separately from coursework, because mixing
+    them is a school policy decision rather than an arithmetic one.
+    """
+
+    ASSIGNMENT = "assignment", "Assignment"
+    ASSESSMENT = "assessment", "Class assessment"
+    MOCK = "mock", "Mock exam"
+    QUARTERLY = "quarterly", "Quarterly exam"
+
+
+class MarkSource(models.TextChoices):
+    """
+    Who put this mark here.
+
+    Every line records its own origin, so an overridden auto-mark still
+    shows what the marker originally said. AUTO is written by the
+    autograding service; a human editing a line takes ownership of it.
+    """
+
+    AUTO = "auto", "Autograder"
+    EXAMINER = "examiner", "Examiner"
+    TEACHER = "teacher", "Teacher"
+
+
+class TopicImportance(models.IntegerChoices):
+    """
+    How much a topic counts toward the subject mark.
+
+    Set once, on the syllabus, where it is a curriculum judgement rather
+    than something decided under time pressure the night an assignment is
+    written. Three levels, because six teachers will not apply a finer
+    scale consistently across a year, and inconsistent weights are worse
+    than none.
+
+    Stored as `SyllabusTopic.weight_pct`; only the ratios are ever used,
+    so a school that would rather allocate a true percentage across its
+    topics can do that instead and the arithmetic is unchanged.
+    """
+
+    SUPPORTING = 30, "Supporting"
+    STANDARD = 60, "Standard"
+    CORE = 100, "Core"
+
+
+class NoticeCategory(models.TextChoices):
+    EXAM_TIMETABLE = "exam_timetable", "Exam timetable"
+    EXAM_SYLLABUS = "exam_syllabus", "Exam syllabus"
+    GENERAL = "general", "General notice"
+
+
+class AutogradeStatus(models.TextChoices):
+    """Where one autograding request has got to."""
+
+    QUEUED = "queued", "Queued"
+    RUNNING = "running", "Running"
+    DONE = "done", "Done"
+    FAILED = "failed", "Failed"
+    SKIPPED = "skipped", "Skipped"
 
 
 class SubjectStatus(models.TextChoices):
@@ -2162,6 +2240,28 @@ class Handout(AuditModel):
         help_text="Students hand work back from it. Clear it for a sheet that "
                   "is only to read.",
     )
+    kind = models.CharField(
+        max_length=16, choices=HandoutKind.choices, default=HandoutKind.ASSIGNMENT,
+        help_text="An assignment is set in class; the exam kinds are sat under "
+                  "supervision and are never shown to a class in advance.",
+    )
+    # Weight is inherited from the topic, not typed per paper. A teacher
+    # who rates a topic once when planning the year never has to weigh a
+    # test again. The override is for the occasional paper that does not
+    # deserve its topic's weight; empty means inherit, which is the
+    # normal case.
+    weight_override = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name="weight override",
+        help_text="Leave empty to inherit the topic's importance. Set it only "
+                  "for a paper that should count more or less than its topic.",
+    )
+    counts_toward_grade = models.BooleanField(
+        default=True,
+        help_text="Clear it for practice work that is marked but should not "
+                  "move the student's average.",
+    )
     # Three dates, because they answer three different questions. The
     # due date is when work is expected; the cut-off is when the door
     # actually shuts. Between them, work is accepted and marked late —
@@ -2277,6 +2377,72 @@ class Handout(AuditModel):
         Canvas refuses outright for the same reason; so do we.
         """
         return not self.has_submissions
+
+    # -- weight ---------------------------------------------------------
+    @property
+    def is_exam(self):
+        """Sat under supervision, so it is never shown to a class in advance."""
+        return self.kind in {
+            HandoutKind.ASSESSMENT, HandoutKind.MOCK, HandoutKind.QUARTERLY,
+        }
+
+    @property
+    def topic_importance(self):
+        """
+        The importance of the topic this paper is set on.
+
+        Topics nest, and only syllabus sections carry a weight, so a paper
+        set on a leaf topic reads the weight of the nearest ancestor that
+        has one. Returns None when the paper is not tied to a catalogued
+        topic at all.
+        """
+        if not self.topic_id:
+            return None
+        # The topic itself, then its ancestors, nearest first.
+        candidates = [self.topic_id]
+        path = (self.topic.path or "").strip("/")
+        if path:
+            candidates += [int(x) for x in reversed(path.split("/")) if x.isdigit()]
+        rows = {
+            st.topic_id: st.weight_pct
+            for st in SyllabusTopic.objects.filter(
+                syllabus_id=self.syllabus_id, topic_id__in=candidates, voided=False,
+            )
+        }
+        for topic_id in candidates:
+            if rows.get(topic_id) is not None:
+                return rows[topic_id]
+        return None
+
+    @property
+    def effective_weight(self):
+        """
+        What this paper actually counts for, resolved rather than typed.
+
+        The override wins if one was set; otherwise the topic's importance;
+        otherwise Standard. A paper marked as not counting returns zero, so
+        it can stay in the list and out of the average.
+        """
+        if not self.counts_toward_grade:
+            return Decimal("0")
+        if self.weight_override is not None:
+            return Decimal(self.weight_override)
+        inherited = self.topic_importance
+        if inherited is not None:
+            return Decimal(inherited)
+        return Decimal(TopicImportance.STANDARD.value)
+
+    @property
+    def weight_label(self):
+        """The resolved weight said in words, for a chip on the teacher's page."""
+        if not self.counts_toward_grade:
+            return "Practice only"
+        weight = self.effective_weight
+        best = min(
+            TopicImportance.choices, key=lambda c: abs(Decimal(c[0]) - weight)
+        )
+        suffix = "" if self.weight_override is None else " (set on this paper)"
+        return f"{best[1]}{suffix}"
 
     @property
     def due_moment(self):
@@ -2572,6 +2738,19 @@ class Submission(AuditModel):
     )
     date_marked = models.DateTimeField(null=True, blank=True)
 
+    # The teacher's sign-off. A mark the examiner produced is not released
+    # to the student until the class teacher approves it here.
+    approved_by = models.ForeignKey(
+        USER, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="submissions_approved",
+        help_text="The teacher who released this to the student.",
+    )
+    date_approved = models.DateTimeField(null=True, blank=True)
+    sent_back_reason = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="Why the teacher returned this to the examiner to re-check.",
+    )
+
     # A redo happens only when a teacher asks for one on this particular
     # piece of work. Nothing comes back automatically: most work is
     # checked, returned and finished with.
@@ -2623,14 +2802,74 @@ class Submission(AuditModel):
 
     @property
     def is_checked(self):
+        """The examiner has produced a checked result (approved or not)."""
         return self.state in (
-            SubmissionState.MARKED, SubmissionState.ACCEPTED,
-            SubmissionState.RETURNED,
+            SubmissionState.MARKED, SubmissionState.APPROVED,
+            SubmissionState.ACCEPTED, SubmissionState.RETURNED,
         )
 
     @property
+    def awaits_approval(self):
+        """Checked by the examiner, sitting in the teacher's approval list."""
+        return self.state == SubmissionState.MARKED
+
+    @property
+    def is_released(self):
+        """Approved by the teacher — the student may see the mark and file."""
+        return self.state in (SubmissionState.APPROVED, SubmissionState.RETURNED)
+
+    @property
+    def sent_back(self):
+        """The teacher returned it to the examiner to re-check."""
+        return self.state == SubmissionState.SENT_BACK
+
+    @property
+    def marks_total(self):
+        """Marks available, from the breakdown if there is one."""
+        lines = [l for l in self.mark_lines.all() if not l.voided]
+        if lines:
+            return sum((l.out_of or Decimal("0")) for l in lines)
+        return self.handout.max_marks
+
+    @property
+    def marks_awarded(self):
+        """Marks given, from the breakdown if there is one."""
+        lines = [l for l in self.mark_lines.all() if not l.voided]
+        if lines:
+            return sum((l.awarded or Decimal("0")) for l in lines)
+        return self.awarded_marks
+
+    @property
+    def percentage(self):
+        """
+        This piece of work as a percentage.
+
+        The percentage is what aggregates, never the raw marks: a sheet
+        out of 50 and a sheet out of 10 say the same thing about a student
+        once both are on a scale of a hundred, and letting raw marks
+        aggregate would make the longer sheet count for five times more by
+        accident rather than by anyone's decision.
+        """
+        total = self.marks_total
+        awarded = self.marks_awarded
+        if not total or awarded is None:
+            return None
+        return (Decimal(awarded) / Decimal(total) * 100).quantize(Decimal("0.01"))
+
+    @property
+    def has_auto_marks(self):
+        return any(
+            l.source == MarkSource.AUTO for l in self.mark_lines.all() if not l.voided
+        )
+
+    @property
+    def needs_examiner(self):
+        """On the examiner's plate: never checked, or bounced back to them."""
+        return self.state in (SubmissionState.SUBMITTED, SubmissionState.SENT_BACK)
+
+    @property
     def awaits_redo(self):
-        """The teacher asked for this one to be done again."""
+        """The teacher asked the student to do this one again."""
         return self.state == SubmissionState.RETURNED
 
     def work_files(self):
@@ -2652,12 +2891,58 @@ class Submission(AuditModel):
             if not link.voided and link.role == "checked" and link.attachment_id
         ]
 
+    def lines(self):
+        """The marks breakdown, in the order the examiner entered it."""
+        return list(self.mark_lines.filter(voided=False))
+
+    def line_totals(self):
+        """
+        What the breakdown adds up to.
+
+        Returned even when there are no lines, so a caller never has to
+        check first: awarded and out_of are then both zero.
+        """
+        lines = self.lines()
+        return {
+            "awarded": sum((line.awarded or 0) for line in lines),
+            "out_of": sum((line.out_of or 0) for line in lines),
+            "count": len(lines),
+        }
+
     def mark(self, user=None, marks=None, feedback=""):
-        self.awarded_marks = marks
+        """
+        Record the result.
+
+        `awarded_marks` stays the single number everything else reads, but
+        once a breakdown exists it is the sum of the lines rather than a
+        figure typed separately — two totals that can disagree is one
+        total too many.
+        """
+        totals = self.line_totals()
+        self.awarded_marks = totals["awarded"] if totals["count"] else marks
         self.feedback = feedback
         self.marked_by = user
         self.date_marked = timezone.now()
+        # Checked, but held for the teacher: MARKED means "waiting for
+        # approval", not "released". A re-check after a send-back clears the
+        # send-back note and puts it back in front of the teacher.
         self.state = SubmissionState.MARKED
+        self.sent_back_reason = ""
+        self.save()
+        return self
+
+    def approve(self, user=None):
+        """The class teacher releases the examiner's mark to the student."""
+        self.state = SubmissionState.APPROVED
+        self.approved_by = user
+        self.date_approved = timezone.now()
+        self.save()
+        return self
+
+    def send_back_to_examiner(self, user=None, reason=""):
+        """The teacher returns the marking to the examiner to look at again."""
+        self.state = SubmissionState.SENT_BACK
+        self.sent_back_reason = reason
         self.save()
         return self
 
@@ -2669,6 +2954,62 @@ class Submission(AuditModel):
         self.redo_reason = reason
         self.save()
         return self
+
+
+class MarkLine(AuditModel):
+    """
+    One line of a submission's marks breakdown.
+
+    A single total tells a student they got 14. A breakdown tells them
+    which question lost the marks, which is the only part they can act
+    on. The lines are free-text on purpose: a handout is a scanned paper,
+    not a structured question bank, so the examiner names the parts the
+    way the paper does.
+    """
+
+    submission = models.ForeignKey(
+        "Submission", on_delete=models.PROTECT, related_name="mark_lines"
+    )
+    label = models.CharField(
+        max_length=64,
+        help_text="What the paper calls this part — Q1, Q2(a), Section B.",
+    )
+    out_of = models.DecimalField(
+        max_digits=6, decimal_places=2, default=0,
+        help_text="Marks available for this part.",
+    )
+    awarded = models.DecimalField(
+        max_digits=6, decimal_places=2, default=0,
+        help_text="Marks the student was given for it.",
+    )
+    comment = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="Why, in a few words. The student reads this.",
+    )
+    source = models.CharField(
+        max_length=16, choices=MarkSource.choices, default=MarkSource.EXAMINER,
+        help_text="Who put this mark here. A human editing an autograded line "
+                  "takes ownership of it, and the original stays in the audit trail.",
+    )
+    sort_order = models.IntegerField(default=0, verbose_name="sort")
+
+    class Meta(AuditModel.Meta):
+        db_table = "mark_line"
+        ordering = ["sort_order", "id"]
+        indexes = [
+            models.Index(fields=["submission"], name="mark_line_submiss_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.label}: {self.awarded}/{self.out_of}"
+
+    @property
+    def lost(self):
+        return (self.out_of or 0) - (self.awarded or 0)
+
+    @property
+    def full_marks(self):
+        return self.out_of and self.awarded == self.out_of
 
 
 class Attachment(AuditModel):
@@ -2837,3 +3178,149 @@ class UploadSession(AuditModel):
         self.save(update_fields=["state"])
         self.void(reason=reason)
         return self
+
+
+# ---------------------------------------------------------------------
+# The notice board
+# ---------------------------------------------------------------------
+class Notice(AuditModel):
+    """
+    Something the school puts in front of a class: an exam timetable, an
+    exam syllabus, or a plain notice.
+
+    Deliberately a file rather than structured rows. A quarterly timetable
+    is produced once a term as a document, and re-typing it into the
+    system would be work with no reader — nobody queries an exam timetable,
+    they look at it. The structured route exists for anything that does
+    need querying.
+
+    An empty `grade` means every class sees it.
+    """
+
+    title = models.CharField(max_length=256)
+    category = models.CharField(
+        max_length=24, choices=NoticeCategory.choices,
+        default=NoticeCategory.GENERAL,
+    )
+    grade = models.ForeignKey(
+        Grade, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="notices",
+        help_text="Which class it is for. Empty means all classes.",
+    )
+    academic_year = models.IntegerField(
+        null=True, blank=True,
+        help_text="The year it belongs to, so old timetables fall off the board.",
+    )
+    body = models.TextField(
+        blank=True, default="",
+        help_text="A line or two of context. The file is the notice; this is optional.",
+    )
+    published_from = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Students see it from this moment. Empty means immediately.",
+    )
+    published_until = models.DateTimeField(
+        null=True, blank=True,
+        help_text="It drops off the board after this. Empty means it stays.",
+    )
+    posted_by = models.ForeignKey(
+        USER, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="notices_posted",
+    )
+    date_posted = models.DateTimeField(default=timezone.now)
+
+    #: The timetable or syllabus itself, through the usual generic link.
+    attachments = GenericRelation("AttachmentLink", related_query_name="notice")
+
+    class Meta(AuditModel.Meta):
+        db_table = "notice"
+        ordering = ["-date_posted"]
+        indexes = [
+            models.Index(fields=["category"], name="notice_categor_idx"),
+            models.Index(fields=["grade", "academic_year"], name="notice_grade_year_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.get_category_display()} · {self.title}"
+
+    @property
+    def is_live(self):
+        """On the board right now, decided from the clock rather than a flag."""
+        now = timezone.now()
+        if self.published_from and now < self.published_from:
+            return False
+        if self.published_until and now > self.published_until:
+            return False
+        return not self.voided
+
+    def files(self):
+        return [
+            link.attachment for link in self.attachments.all()
+            if not link.voided and link.attachment_id
+        ]
+
+
+# ---------------------------------------------------------------------
+# Autograding — the seam to the marking service
+# ---------------------------------------------------------------------
+class AutogradeJob(AuditModel):
+    """
+    One request to have a submission marked by the autograding service.
+
+    The service itself lives outside this codebase. This row is the seam:
+    it records what was asked, what came back, and how sure the service
+    was, so a mark can always be traced to the run that produced it.
+
+    Nothing here marks anything. The service writes MarkLines with
+    `source=AUTO`, and an examiner or teacher may overwrite any of them —
+    which is the point. An autograded mark is a first draft, and the
+    person who changes a line takes ownership of it while the job keeps
+    the original for anyone who asks what the machine said.
+    """
+
+    submission = models.ForeignKey(
+        Submission, on_delete=models.PROTECT, related_name="autograde_jobs"
+    )
+    status = models.CharField(
+        max_length=16, choices=AutogradeStatus.choices,
+        default=AutogradeStatus.QUEUED,
+    )
+    service_ref = models.CharField(
+        max_length=128, blank=True, default="",
+        help_text="The marking service's own id for this run, for tracing a "
+                  "result back to its logs.",
+    )
+    requested_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    confidence = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="How sure the service was, if it says. Low confidence is a "
+                  "reason to look, not a reason to reject.",
+    )
+    raw_response = models.JSONField(
+        null=True, blank=True,
+        help_text="Exactly what came back, kept verbatim so a disputed mark "
+                  "can be checked against the source rather than the summary.",
+    )
+    error = models.TextField(
+        blank=True, default="",
+        help_text="Why it failed, if it did. A failed job is not a blocked "
+                  "submission — the examiner simply marks it by hand.",
+    )
+
+    class Meta(AuditModel.Meta):
+        db_table = "autograde_job"
+        ordering = ["-requested_at"]
+        indexes = [
+            models.Index(fields=["status"], name="autograde_status_idx"),
+            models.Index(fields=["submission"], name="autograde_submiss_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.submission.code} · {self.get_status_display()}"
+
+    @property
+    def is_finished(self):
+        return self.status in {AutogradeStatus.DONE, AutogradeStatus.FAILED,
+                               AutogradeStatus.SKIPPED}

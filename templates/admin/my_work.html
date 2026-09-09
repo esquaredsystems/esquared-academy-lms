@@ -23,11 +23,40 @@
   form.hand{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px}
   form.hand button{padding:9px 20px;border-radius:999px;border:0;cursor:pointer;
     background:var(--ac-accent,#c67139);color:#fff;font-size:14px}
+  .job .when{font-size:14px;margin:0 0 10px}
+  .job .soft{color:var(--ac-ink-3,#645c50);font-weight:400}
+  .rule{font-size:12px;color:var(--ac-ink-3,#645c50);margin:6px 0 0}
   .rounds{font-size:13px;color:var(--ac-ink-2,#474238);margin:8px 0 0}
   .rounds code{font-size:12px;color:var(--ac-ink-3,#645c50)}
+  table.marks{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0 0;
+    background:#fff;border:1px solid var(--ac-line,#dcd3c4);border-radius:10px;
+    overflow:hidden}
+  table.marks th,table.marks td{text-align:left;padding:8px 12px;
+    border-bottom:1px solid var(--ac-line,#e6dfd2)}
+  table.marks thead th{font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);background:var(--ac-card-2,#f3ede2)}
+  table.marks tbody td:nth-child(2),table.marks tbody td:nth-child(3){width:70px}
+  table.marks tr.dropped td:nth-child(2){color:#8c2f2f;font-weight:600}
+  table.marks tfoot th{background:var(--ac-card-2,#f3ede2);border-bottom:0;font-size:13px}
   h2.sec{font-size:14px;letter-spacing:.09em;text-transform:uppercase;
     color:var(--ac-ink-3,#645c50);margin:30px 0 12px}
   .empty{color:var(--ac-ink-3,#645c50);font-size:14px}
+  .score{display:inline-block;font-size:22px;font-weight:700;margin:10px 0 0;
+    color:var(--ac-ink,#201e1d)}
+  .score .of{font-size:13px;font-weight:400;color:var(--ac-ink-3,#645c50);margin-left:4px}
+  .chip{display:inline-block;font-size:11px;padding:3px 10px;border-radius:999px;
+    background:var(--ac-card-2,#eee7db);border:1px solid var(--ac-line,#dcd3c4);
+    color:var(--ac-ink-3,#645c50);margin-left:8px}
+  .stand{background:#fff;border:1px solid var(--ac-line,#dcd3c4);border-radius:14px;
+    padding:16px 20px;margin:0 0 14px}
+  .stand h3{margin:0 0 10px;font-size:16px}
+  .stand .big{font-size:15px;margin:0 0 10px}
+  .stand .big b{font-size:20px}
+  table.topics{width:100%;border-collapse:collapse;font-size:13px}
+  table.topics th,table.topics td{text-align:left;padding:6px 10px;
+    border-bottom:1px solid var(--ac-line,#efe9de)}
+  table.topics thead th{font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50)}
   .note{background:#fff6e2;border:1px solid #e8d5a8;border-radius:12px;
     padding:12px 16px;margin:0 0 20px;font-size:14px}
 </style>
@@ -47,85 +76,181 @@
   <div class="note">Your account is not linked to a student record yet, so there is nothing to show.</div>
 {% endif %}
 
-<h2 class="sec">To do</h2>
+<h2 class="sec">To hand in</h2>
 {% for r in open_rows %}
   <div class="job">
     <h3>{{ r.handout.title }}
-      {% if r.needs_redo %}<span class="pill returned">Redo the ones marked wrong</span>{% endif %}
+      {% if r.needs_redo %}<span class="pill returned">Do this one again</span>{% endif %}
     </h3>
     <p class="where">
       {{ r.handout.syllabus.subject }} · <code>{{ r.handout.code }}</code>
-      {% if r.due %} ·
+    </p>
+
+    <p class="when">
+      {% if r.due %}
         <span class="due {% if r.due < now %}late{% endif %}">
-          due {{ r.due|date:"D j M, H:i" }}</span>
+          Due {{ r.due|date:"l j F, H:i" }}</span>
         {% if r.extended %}<span class="pill returned">extended for you</span>{% endif %}
+        {% if r.cutoff %}
+          <span class="soft">— still accepted, marked late, until {{ r.cutoff|date:"D j M, H:i" }}</span>
+        {% endif %}
+      {% else %}
+        <span class="soft">No deadline set.</span>
       {% endif %}
-      {% if r.cutoff %} · <span class="due">closes {{ r.cutoff|date:"D j M, H:i" }}</span>{% endif %}
     </p>
 
     {% if r.sheet %}
       <div class="sheet">
-        {% for f in r.sheet %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a>{% endfor %}
+        {% for f in r.sheet %}
+          <a href="{{ f.url }}" target="_blank" rel="noopener">The sheet — {{ f.name }}</a>
+        {% endfor %}
       </div>
     {% endif %}
 
-    {% if r.submissions %}
-      <p class="rounds">
-        {% for s in r.submissions %}
-          Attempt {{ s.round_no }} — {{ s.get_state_display }}
-          {% if s.awarded_marks is not None %}
-            · {{ s.awarded_marks }}{% if r.handout.max_marks %} / {{ r.handout.max_marks }}{% endif %} marks
-          {% endif %}
-          {% if s.redo_reason %}<br><b>Do again:</b> {{ s.redo_reason }}{% endif %}
-          <code>{{ s.code }}</code><br>
-        {% endfor %}
-      </p>
+    {% if r.needs_redo and r.latest.redo_reason %}
+      <p class="rounds"><b>Your teacher asked for this again:</b> {{ r.latest.redo_reason }}</p>
     {% endif %}
 
     {% if r.checked %}
       <div class="sheet">
         {% for f in r.checked %}
-          <a href="{{ f.url }}" target="_blank" rel="noopener">
-            Your checked paper — {{ f.name }}</a>
+          <a href="{{ f.url }}" target="_blank" rel="noopener">Your checked paper — {{ f.name }}</a>
         {% endfor %}
       </div>
     {% endif %}
+    {% if r.lines %}
+      <table class="marks">
+        <thead><tr><th>Part</th><th>Got</th><th>Out of</th><th>What the checker wrote</th></tr></thead>
+        <tbody>
+          {% for line in r.lines %}
+          <tr{% if line.lost %} class="dropped"{% endif %}>
+            <td>{{ line.label }}</td>
+            <td>{{ line.awarded|floatformat:"-2" }}</td>
+            <td>{{ line.out_of|floatformat:"-2" }}</td>
+            <td>{{ line.comment|default:"—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+        <tr>
+          <th>Total</th>
+          <th>{{ r.totals.awarded|floatformat:"-2" }}</th>
+          <th>{{ r.totals.out_of|floatformat:"-2" }}</th>
+          <th></th>
+        </tr>
+        </tfoot>
+      </table>
+    {% endif %}
 
-    {% if r.rounds_left > 0 and r.can_submit %}
+    {% if r.can_submit %}
       <form class="hand" method="post" enctype="multipart/form-data">
         {% csrf_token %}
         <input type="hidden" name="handout" value="{{ r.handout.pk }}">
-        <input type="file" name="files" accept=".pdf,image/*" multiple required>
+        <input type="file" name="file" accept="application/pdf,.pdf" required>
         <button type="submit">Hand it in</button>
-        <span style="font-size:12px;color:var(--ac-ink-3,#645c50)">
-          {{ r.rounds_left }} attempt{{ r.rounds_left|pluralize }} left
-        </span>
       </form>
-    {% elif not r.can_submit %}
-      <p class="rounds">{{ r.why_not }}</p>
+      <p class="rule">One PDF. If you have photos of your pages, put them into a
+        single PDF first — your phone's scanning app does this.</p>
     {% else %}
-      <p class="rounds">No attempts left. Your teacher will take it from here.</p>
+      <p class="rounds">{{ r.why_not }}</p>
     {% endif %}
   </div>
 {% empty %}
   <p class="empty">Nothing to hand in. You are up to date.</p>
 {% endfor %}
 
+{% if standing %}
+  <h2 class="sec">Where you stand</h2>
+  {% for s in standing %}
+    {% if s.overall_pct is not None %}
+      <div class="stand">
+        <h3>{{ s.subject }}</h3>
+        <p class="big">
+          <b>{{ s.overall_pct|floatformat:"-1" }}%</b> overall
+          {% if s.coursework_pct is not None %}
+            · coursework {{ s.coursework_pct|floatformat:"-1" }}%{% endif %}
+          {% if s.exam_pct is not None %}
+            · exams {{ s.exam_pct|floatformat:"-1" }}%{% endif %}
+        </p>
+        {% if s.topics %}
+          <table class="topics">
+            <thead><tr><th>Topic</th><th>Score</th><th>Papers</th><th>Counts as</th></tr></thead>
+            <tbody>
+              {% for t in s.topics %}
+                <tr>
+                  <td>{{ t.topic_name }}</td>
+                  <td>{{ t.score_pct|floatformat:"-1" }}%</td>
+                  <td>{{ t.papers }}</td>
+                  <td>{{ t.weight_label }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
 {% if done_rows %}
   <h2 class="sec">Handed in</h2>
   {% for r in done_rows %}
     <div class="job">
       <h3>{{ r.handout.title }}
-        <span class="pill {{ r.latest.state }}">{{ r.latest.get_state_display }}</span>
+        <span class="pill {{ r.latest.state }}">
+          {% if r.checked %}Checked{% else %}Waiting to be checked{% endif %}
+        </span>
       </h3>
       <p class="where">
         {{ r.handout.syllabus.subject }} · <code>{{ r.handout.code }}</code>
-        {% if r.latest.awarded_marks is not None %}
-          · {{ r.latest.awarded_marks }}{% if r.handout.max_marks %} / {{ r.handout.max_marks }}{% endif %} marks
-        {% endif %}
       </p>
-      {% if r.latest.feedback %}<p class="rounds">{{ r.latest.feedback }}</p>{% endif %}
-      <p class="rounds"><code>{{ r.latest.code }}</code> · handed in {{ r.latest.time_submitted|date:"j M, H:i" }}</p>
+      <p class="rounds">
+        Handed in {{ r.latest.time_submitted|date:"l j F, H:i" }}
+        {% if r.latest.is_late %}<span class="due late">— late</span>{% endif %}
+        · your reference <code>{{ r.latest.code }}</code>
+      </p>
+
+      {% if r.checked %}
+        <div class="sheet">
+          {% for f in r.checked %}
+            <a href="{{ f.url }}" target="_blank" rel="noopener">
+              Your checked paper — {{ f.name }}</a>
+          {% endfor %}
+        </div>
+      {% if r.percentage is not None %}
+        <p class="score">{{ r.percentage|floatformat:"-1" }}%<span class="of">
+          — {{ r.totals.awarded|floatformat:"-2" }} out of {{ r.totals.out_of|floatformat:"-2" }}</span>
+          <span class="chip">{{ r.weight_label }}</span></p>
+      {% endif %}
+      {% if r.lines %}
+        <table class="marks">
+          <thead><tr><th>Part</th><th>Got</th><th>Out of</th><th>What the checker wrote</th></tr></thead>
+          <tbody>
+            {% for line in r.lines %}
+              <tr{% if line.lost %} class="dropped"{% endif %}>
+                <td>{{ line.label }}</td>
+                <td>{{ line.awarded|floatformat:"-2" }}</td>
+                <td>{{ line.out_of|floatformat:"-2" }}</td>
+                <td>{{ line.comment|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th>Total</th>
+              <th>{{ r.totals.awarded|floatformat:"-2" }}</th>
+              <th>{{ r.totals.out_of|floatformat:"-2" }}</th>
+              <th></th>
+            </tr>
+          </tfoot>
+        </table>
+      {% endif %}
+        {% if r.latest.feedback %}
+          <p class="rounds"><b>Overall:</b> {{ r.latest.feedback }}</p>
+        {% endif %}
+      {% else %}
+        <p class="rounds soft">Your checked copy will appear here when it is ready.</p>
+      {% endif %}
     </div>
   {% endfor %}
 {% endif %}

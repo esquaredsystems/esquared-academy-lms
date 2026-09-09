@@ -22,8 +22,10 @@ from datetime import date, timedelta
 from io import StringIO
 
 from django.contrib import messages
+from decimal import Decimal, InvalidOperation
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.core.management import call_command
 from django.shortcuts import redirect
@@ -31,7 +33,20 @@ from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils import timezone
 
-from . import access, demo_data, files as app_files, models
+from . import access, demo_data, files as app_files, grading, models
+
+
+def _current_year():
+    """
+    The academic year as the school writes it.
+
+    The session runs 1 July to 30 June and is named for both calendar
+    years it touches: 2026-27 is 2627. Derived from the clock rather than
+    stored in a setting, so nobody has to remember to change it in July.
+    """
+    today = timezone.localdate()
+    start = today.year if today.month >= 7 else today.year - 1
+    return int(f"{start % 100:02d}{(start + 1) % 100:02d}")
 
 
 def _counts(year):
@@ -229,6 +244,7 @@ def _assignment_rows(lesson):
         if handout is None or handout.voided:
             continue
         sheet = _handout_files(handout, "handout")
+        scheme = _handout_files(handout, "scheme")
         # Three states, and the time decides the third one. A handout is
         # posted until its due date passes, at which point it reads as
         # closed without anyone having to remember to close it.
@@ -257,6 +273,9 @@ def _assignment_rows(lesson):
             "extend_url": reverse("handout-extend", args=[handout.pk]),
             "url": reverse("handout", args=[handout.pk]),
             "sheet": sheet,
+            "scheme": scheme,
+            "scheme_name": scheme[0]["name"] if scheme else "",
+            "scheme_url": scheme[0]["url"] if scheme else "",
             "file_name": sheet[0]["name"] if sheet else "",
             "file_url": sheet[0]["url"] if sheet else "",
             "file_size": sheet[0]["size"] if sheet else "",
@@ -337,6 +356,9 @@ def _decorate(lesson):
         # pause after an ended class look like an end.
         "timer_state": lesson.timer_status,
         "counts": lesson.topic_counts,
+        # Taught and written up: it folds away, so the day's remaining
+        # work stays prominent. Everything else stays open.
+        "finished": bool(lesson.date_taught) and lesson.timer_status == "ended",
         "needs_plan": not lesson.plan.strip(),
         "needs_log": lesson.date <= timezone.localdate() and not lesson.date_taught,
         "awaiting_review": lesson.status == models.LessonStatus.SUBMITTED,
@@ -563,6 +585,36 @@ def _moment(raw):
         return None
 
 
+def _link_file(handout, attachment, role):
+    """
+    Attach one file to a handout in one role, and say whether that is new.
+
+    The role belongs in the lookup. Without it, a file already attached as
+    the answer scheme counted as "already linked" when the same file was
+    then added as the sheet, so the sheet silently stayed empty. A file may
+    legitimately hold both roles, and the two are found separately.
+
+    A link that was removed earlier is revived rather than duplicated,
+    which also restores `active_flag` — the column the unique constraint
+    relies on.
+    """
+    content_type = ContentType.objects.get_for_model(models.Handout)
+    link = models.AttachmentLink.all_objects.filter(
+        attachment=attachment, content_type=content_type,
+        object_id=handout.pk, role=role,
+    ).order_by("-id").first()
+    if link is None:
+        models.AttachmentLink.objects.create(
+            attachment=attachment, content_type=content_type,
+            object_id=handout.pk, role=role,
+        )
+        return True
+    if link.voided:
+        link.unvoid()
+        return True
+    return False
+
+
 def _set_sheet(handout, attachment, note=""):
     """
     Make this file the handout's sheet, as a new version.
@@ -573,14 +625,41 @@ def _set_sheet(handout, attachment, note=""):
     """
     handout.add_sheet(attachment, note=note)
     content_type = ContentType.objects.get_for_model(models.Handout)
-    models.AttachmentLink.objects.filter(
+    # Voided one row at a time on purpose. A bulk update() skips save(),
+    # which is where active_flag is cleared, and a voided row that keeps
+    # its active_flag still occupies the unique key — so the same file
+    # could never be attached again.
+    for link in models.AttachmentLink.objects.filter(
         content_type=content_type, object_id=handout.pk,
         role="handout", voided=False,
-    ).exclude(attachment=attachment).update(voided=True)
-    models.AttachmentLink.objects.get_or_create(
-        attachment=attachment, content_type=content_type,
-        object_id=handout.pk, voided=False, defaults={"role": "handout"},
-    )
+    ).exclude(attachment=attachment):
+        link.void(reason="replaced by a newer sheet")
+    _link_file(handout, attachment, "handout")
+
+
+def _detach_file(handout, attachment_id, role):
+    """
+    Take one file off a handout.
+
+    The file itself is kept — it may be attached elsewhere, and a
+    submission may point at the sheet version that used it. Only the link
+    goes, and with the sheet, the version record that named it.
+    """
+    content_type = ContentType.objects.get_for_model(models.Handout)
+    link = models.AttachmentLink.objects.filter(
+        attachment_id=attachment_id, content_type=content_type,
+        object_id=handout.pk, role=role, voided=False,
+    ).first()
+    if link is None:
+        return None
+    name = link.attachment.title or link.attachment.original_filename
+    link.void(reason="removed by a teacher")
+    if role == "handout":
+        for sheet in handout.sheets.filter(
+            attachment_id=attachment_id, voided=False, replaced_on__isnull=True
+        ):
+            sheet.void(reason="sheet removed")
+    return name
 
 
 def _handout_files(handout, role="handout"):
@@ -632,6 +711,23 @@ def handout_view(request, handout_id, admin_site):
                 )
             return redirect(reverse("handout", args=[handout.pk]))
 
+        if action == "detach":
+            if not request.user.has_perm("app.change_handout"):
+                raise PermissionDenied
+            role = request.POST.get("role") or "handout"
+            name = _detach_file(handout, request.POST.get("attachment"), role)
+            if name is None:
+                messages.error(request, "That file is not attached to this handout.")
+            elif role == "handout":
+                messages.success(
+                    request,
+                    f"{name} removed. There is no sheet on this handout now — "
+                    "attach one before handing it out.",
+                )
+            else:
+                messages.success(request, f"{name} removed from the answer scheme.")
+            return redirect(reverse("handout", args=[handout.pk]))
+
         if action == "activate":
             if not request.user.has_perm("app.change_handout"):
                 raise PermissionDenied
@@ -651,6 +747,7 @@ def handout_view(request, handout_id, admin_site):
             role = request.POST.get("role") or "handout"
             uploads = request.FILES.getlist("files")
             content_type = ContentType.objects.get_for_model(models.Handout)
+            names = []
             for upload in uploads:
                 checksum = app_files.sha256_of(upload)
                 attachment = models.Attachment.objects.filter(
@@ -668,13 +765,26 @@ def handout_view(request, handout_id, admin_site):
                 if role == "handout":
                     _set_sheet(handout, attachment,
                                note=(request.POST.get("note") or "").strip()[:255])
+                    names.append(attachment.title or attachment.original_filename)
                 else:
-                    models.AttachmentLink.objects.get_or_create(
-                        attachment=attachment, content_type=content_type,
-                        object_id=handout.pk, voided=False,
-                        defaults={"role": role},
-                    )
-            messages.success(request, f"{len(uploads)} file(s) attached.")
+                    _link_file(handout, attachment, role)
+                    names.append(attachment.title or attachment.original_filename)
+            if names and role == "handout":
+                messages.success(
+                    request,
+                    "{} is now the sheet students get (version {}).".format(
+                        names[-1], handout.sheet_version_no
+                    ),
+                )
+            elif names:
+                messages.success(
+                    request,
+                    "{} attached as the answer scheme. Students never see it.".format(
+                        ", ".join(names)
+                    ),
+                )
+            else:
+                messages.error(request, "No file was chosen, so nothing was attached.")
         return redirect(reverse("handout", args=[handout.pk]))
 
     submissions = (
@@ -775,6 +885,34 @@ def handout_print_view(request, handout_id, admin_site):
 # ---------------------------------------------------------------------
 # My work — the student's side
 # ---------------------------------------------------------------------
+def _decimal(value):
+    """A number from a form field, or zero. Never an exception."""
+    try:
+        return Decimal(str(value).strip() or "0")
+    except (InvalidOperation, ValueError, AttributeError):
+        return Decimal("0")
+
+
+def _is_pdf(upload):
+    """
+    A PDF, judged by its first bytes rather than its name.
+
+    A file renamed to .pdf is still a photo, and the examiner is the one
+    who would find out. The signature check costs five bytes.
+    """
+    if upload is None:
+        return False
+    name = (upload.name or "").lower()
+    head = b""
+    try:
+        upload.seek(0)
+        head = upload.read(5)
+        upload.seek(0)
+    except Exception:
+        pass
+    return name.endswith(".pdf") and head == b"%PDF-"
+
+
 def my_work_view(request, admin_site):
     """
     What is open for this student, and handing it in.
@@ -793,7 +931,11 @@ def my_work_view(request, admin_site):
 
     if request.method == "POST":
         handout = get_object_or_404(models.Handout, pk=request.POST.get("handout"))
-        uploads = request.FILES.getlist("files")
+        # One file, and it must be a PDF. A single paper as a single file is
+        # the whole rule, so there is nothing to explain about page order and
+        # nothing for the examiner to piece together.
+        picked = request.FILES.get("file")
+        uploads = [picked] if picked else []
 
         allowed, why = (
             handout.accepts_submission(enrolment) if enrolment is not None
@@ -803,6 +945,13 @@ def my_work_view(request, admin_site):
             messages.error(request, why)
         elif not uploads:
             messages.error(request, "No file was chosen.")
+        elif not _is_pdf(picked):
+            messages.error(
+                request,
+                "Only a PDF can be handed in. If you have photos of your pages, "
+                "turn them into one PDF first — the scanning app on your phone "
+                "does this — then upload that.",
+            )
         else:
             previous = list(
                 models.Submission.objects
@@ -889,14 +1038,18 @@ def my_work_view(request, admin_site):
             )
             allowed, why = handout.accepts_submission(enrolment)
             latest = mine[-1] if mine else None
-            # One submission each, unless a teacher asked for it again.
+            # Nothing about the marking reaches the student until the class
+            # teacher has approved it. Until then it is simply "being
+            # checked" — the examiner and the approval step are the
+            # school's business, not the student's.
+            released = bool(latest and latest.is_released)
             if latest is not None and not latest.awaits_redo:
                 allowed = False
                 why = (
                     "Checked — see below."
-                    if latest.is_checked else
-                    "Handed in. Your teacher will let you know if anything "
-                    "needs doing again."
+                    if released else
+                    "Handed in. It is being checked; your mark will appear "
+                    "here once it is ready."
                 )
             dates = handout.deadline_for(enrolment)
             row = {
@@ -908,17 +1061,28 @@ def my_work_view(request, admin_site):
                 "cutoff": dates["cutoff"],
                 "extended": dates["due"] != handout.due_moment,
                 "submissions": mine,
-                "latest": mine[-1] if mine else None,
+                "latest": latest,
+                "released": released,
                 "rounds_left": handout.max_rounds - len(mine),
                 "needs_redo": bool(latest and latest.awaits_redo),
+                # Only shown once released. A held mark shows nothing.
                 "checked": [
                     {
                         "name": a.title or a.original_filename,
                         "url": a.file.url if a.file else "",
                         "size": a.size_display,
                     }
-                    for a in (latest.checked_files() if latest else [])
+                    for a in (latest.checked_files() if released else [])
                 ],
+                "lines": latest.lines() if released else [],
+                "totals": latest.line_totals() if released else None,
+                # The percentage is what aggregates, so it is what the
+                # student is shown. Raw marks out of an arbitrary total
+                # tell them nothing about where they stand.
+                "percentage": latest.percentage if released else None,
+                "weight_label": handout.weight_label,
+                "kind_label": handout.get_kind_display(),
+                "is_exam": handout.is_exam,
             }
             (done_rows if mine and not row["needs_redo"] else open_rows).append(row)
 
@@ -929,10 +1093,230 @@ def my_work_view(request, admin_site):
         "enrolment": enrolment,
         "open_rows": open_rows,
         "done_rows": done_rows,
+        "standing": grading.student_report(enrolment) if enrolment else [],
         "today": timezone.localdate(),
         "now": timezone.now(),
     }
     return TemplateResponse(request, "admin/my_work.html", context)
+
+
+# ---------------------------------------------------------------------
+# The notice board
+# ---------------------------------------------------------------------
+def _may_post_notices(user):
+    """Teachers and heads of department put things on the board."""
+    if user.is_superuser:
+        return True
+    return user.groups.filter(
+        name__in=["Teaching Staff", "Head of Department", "Academic Admin", "Admin"]
+    ).exists()
+
+
+def _notice_rows(grade=None, academic_year=None):
+    """
+    What is on the board, grouped by what it is.
+
+    Whether a notice is live is decided from the clock rather than from a
+    flag anyone has to remember to clear, so last term's timetable falls
+    off by itself.
+    """
+    qs = (
+        models.Notice.objects
+        .filter(voided=False)
+        .select_related("grade", "posted_by")
+        .prefetch_related("attachments__attachment")
+    )
+    if grade is not None:
+        qs = qs.filter(Q(grade=grade) | Q(grade__isnull=True))
+    if academic_year is not None:
+        qs = qs.filter(Q(academic_year=academic_year) | Q(academic_year__isnull=True))
+
+    groups = {c.value: [] for c in models.NoticeCategory}
+    for notice in qs:
+        if not notice.is_live:
+            continue
+        groups[notice.category].append({
+            "notice": notice,
+            "files": [
+                {
+                    "name": a.title or a.original_filename,
+                    "url": a.file.url if a.file else "",
+                    "size": a.size_display,
+                    "is_image": (a.mime_type or "").startswith("image/"),
+                }
+                for a in notice.files()
+            ],
+        })
+    return groups
+
+
+def notice_board_view(request, admin_site):
+    """
+    The board a student sees: what is due, and what the school has posted.
+
+    Assignments are listed here as well as on My Work because a student
+    looking for "what is coming" and a student sitting down to hand
+    something in are two different moments, and making the first one
+    require the second is how deadlines get missed.
+    """
+    student = models.Student.objects.filter(user=request.user, voided=False).first()
+    enrolment = (
+        models.Enrolment.objects
+        .filter(student=student, voided=False)
+        .select_related("grade")
+        .order_by("-academic_year")
+        .first()
+        if student else None
+    )
+
+    assignments = []
+    if enrolment is not None:
+        handouts = (
+            models.Handout.objects
+            .filter(
+                voided=False,
+                is_assignment=True,
+                syllabus__grade=enrolment.grade,
+                syllabus__academic_year=enrolment.academic_year,
+                status=models.HandoutStatus.ACTIVE,
+            )
+            .select_related("syllabus", "syllabus__subject", "topic")
+            .order_by("due_date", "code")
+        )
+        for handout in handouts:
+            handed_in = models.Submission.objects.filter(
+                handout=handout, enrolment=enrolment, voided=False
+            ).exists()
+            dates = handout.deadline_for(enrolment)
+            assignments.append({
+                "handout": handout,
+                "subject": handout.syllabus.subject,
+                "due": dates["due"],
+                "handed_in": handed_in,
+                "kind_label": handout.get_kind_display(),
+            })
+
+    groups = _notice_rows(
+        grade=enrolment.grade if enrolment else None,
+        academic_year=enrolment.academic_year if enrolment else None,
+    )
+
+    context = {
+        **admin_site.each_context(request),
+        "title": "Notice board",
+        "student": student,
+        "enrolment": enrolment,
+        "assignments": assignments,
+        "timetables": groups[models.NoticeCategory.EXAM_TIMETABLE],
+        "syllabi": groups[models.NoticeCategory.EXAM_SYLLABUS],
+        "general": groups[models.NoticeCategory.GENERAL],
+        "now": timezone.now(),
+    }
+    return TemplateResponse(request, "admin/notice_board.html", context)
+
+
+def post_notice_view(request, admin_site):
+    """
+    Where a teacher puts an exam timetable or syllabus on the board.
+
+    A file and a heading, because that is what a quarterly timetable
+    actually is. Re-typing it into structured rows would be work with no
+    reader — nobody queries a timetable, they look at it.
+    """
+    if not _may_post_notices(request.user):
+        raise PermissionDenied("Only teaching staff can post to the notice board.")
+
+    teacher = _teacher_for(request.user)
+
+    if request.method == "POST":
+        action = request.POST.get("action", "post")
+
+        if action == "remove":
+            notice = get_object_or_404(models.Notice, pk=request.POST.get("notice"))
+            notice.void(reason="taken off the board")
+            messages.success(request, f"Removed “{notice.title}”.")
+            return redirect(reverse("post-notice"))
+
+        title = (request.POST.get("title") or "").strip()
+        category = request.POST.get("category") or models.NoticeCategory.GENERAL
+        grade_id = request.POST.get("grade") or None
+        body = (request.POST.get("body") or "").strip()
+        upload = request.FILES.get("file")
+
+        if not title:
+            messages.error(request, "Give it a heading so people know what it is.")
+            return redirect(reverse("post-notice"))
+        if category != models.NoticeCategory.GENERAL and not upload:
+            messages.error(
+                request,
+                "A timetable or syllabus needs a file — that is the notice. "
+                "Use a general notice if you only want to say something.",
+            )
+            return redirect(reverse("post-notice"))
+
+        notice = models.Notice.objects.create(
+            title=title,
+            category=category,
+            grade_id=int(grade_id) if grade_id else None,
+            academic_year=_current_year(),
+            body=body,
+            posted_by=request.user,
+        )
+
+        if upload:
+            checksum = app_files.sha256_of(upload)
+            attachment = models.Attachment.objects.filter(
+                checksum=checksum, voided=False
+            ).first()
+            if attachment is None:
+                mime = getattr(upload, "content_type", "") or ""
+                attachment = models.Attachment(
+                    original_filename=upload.name, mime_type=mime,
+                    kind=app_files.classify(mime, upload.name),
+                    size_bytes=upload.size, checksum=checksum,
+                )
+                attachment.file.save(upload.name, upload, save=False)
+                attachment.save()
+            models.AttachmentLink.objects.create(
+                attachment=attachment,
+                content_type=ContentType.objects.get_for_model(models.Notice),
+                object_id=notice.pk,
+                role="notice",
+            )
+
+        where = notice.grade.short_name if notice.grade else "every class"
+        messages.success(request, f"Posted “{title}” to {where}.")
+        return redirect(reverse("post-notice"))
+
+    mine = (
+        models.Notice.objects
+        .filter(voided=False)
+        .select_related("grade", "posted_by")
+        .prefetch_related("attachments__attachment")
+        .order_by("-date_posted")[:40]
+    )
+    rows = [
+        {
+            "notice": n,
+            "files": [
+                {"name": a.title or a.original_filename,
+                 "url": a.file.url if a.file else ""}
+                for a in n.files()
+            ],
+            "live": n.is_live,
+        }
+        for n in mine
+    ]
+
+    context = {
+        **admin_site.each_context(request),
+        "title": "Post a notice",
+        "teacher": teacher,
+        "grades": models.Grade.objects.filter(voided=False).order_by("sort_order", "level"),
+        "categories": models.NoticeCategory.choices,
+        "rows": rows,
+    }
+    return TemplateResponse(request, "admin/post_notice.html", context)
 
 
 def _my_day_post(request):
@@ -1088,21 +1472,30 @@ def _my_day_post(request):
             handout=handout, lesson=lesson, voided=False
         )
 
-        if upload:
-            checksum = app_files.sha256_of(upload)
+        # The sheet the class gets, and — kept apart from it — the answer
+        # scheme, which no student ever sees. Both can be set from here, so
+        # the handout page is somewhere to go, not somewhere you must go.
+        for field, role in (("file", "handout"), ("scheme", "scheme")):
+            picked = request.FILES.get(field)
+            if not picked:
+                continue
+            checksum = app_files.sha256_of(picked)
             attachment = models.Attachment.objects.filter(
                 checksum=checksum, voided=False
             ).first()
             if attachment is None:
-                mime = getattr(upload, "content_type", "") or ""
+                mime = getattr(picked, "content_type", "") or ""
                 attachment = models.Attachment(
-                    original_filename=upload.name, mime_type=mime,
-                    kind=app_files.classify(mime, upload.name),
-                    size_bytes=upload.size, checksum=checksum, title=upload.name,
+                    original_filename=picked.name, mime_type=mime,
+                    kind=app_files.classify(mime, picked.name),
+                    size_bytes=picked.size, checksum=checksum, title=picked.name,
                 )
-                attachment.file.save(upload.name, upload, save=False)
+                attachment.file.save(picked.name, picked, save=False)
                 attachment.save()
-            _set_sheet(handout, attachment)
+            if role == "handout":
+                _set_sheet(handout, attachment)
+            else:
+                _link_file(handout, attachment, role)
 
         return redirect(_back("assign"))
 
@@ -1191,7 +1584,6 @@ def _my_day_post(request):
         done = set(request.POST.getlist("topic_done"))
         for entry in lesson.topics.filter(voided=False, planned=True):
             entry.covered = str(entry.pk) in done
-            entry.note = (request.POST.get(f"note_{entry.pk}") or "")[:255]
             entry.save()
 
         # A ticked child topic is recorded as a covered topic of its own,
@@ -1208,10 +1600,11 @@ def _my_day_post(request):
             entry.covered = True
             entry.save()
 
-        # There is no separate comment box: "Where did you get to?" on each
-        # topic is the note, and asking twice on one screen is how a form
-        # starts feeling like paperwork. `Lesson.log` is still there for
-        # anyone who wants a free-text record on the lesson itself.
+        # One optional comment for the whole class, not one per topic —
+        # reached by "+ comment" so it never asks for anything. The ticks
+        # already say what was covered; this is only for the rest.
+        if "log_comment" in request.POST:
+            lesson.log = (request.POST.get("log_comment") or "").strip()
         if not lesson.date_taught:
             lesson.date_taught = timezone.now()
         lesson.save()
@@ -1367,6 +1760,11 @@ def teacher_home_view(request, admin_site):
     outstanding_work = sum(
         h.completion()["outstanding"] for h in open_handouts_qs
     )
+    # Marks the examiner has checked and left for this teacher to release.
+    to_approve = models.Submission.objects.filter(
+        voided=False, state=models.SubmissionState.MARKED,
+        handout__syllabus__in=syllabi,
+    ).count()
     students = models.Enrolment.objects.filter(
         voided=False, grade__in=grades,
         academic_year=max([s.academic_year for s in syllabi], default=today.year),
@@ -1385,6 +1783,7 @@ def teacher_home_view(request, admin_site):
         "students": students,
         "open_handouts": open_handouts,
         "outstanding_work": outstanding_work,
+        "to_approve": to_approve,
     }
     return TemplateResponse(request, "admin/teacher_home.html", context)
 
@@ -1421,7 +1820,13 @@ def calendar_view(request, admin_site):
                 "lessons": [
                     {
                         "lesson": l,
-                        "url": reverse("admin:app_lesson_change", args=[l.pk]),
+                        # Straight to that class's section on My day, on that
+                        # date — timer, materials, handouts and log all in
+                        # reach. The edit form is for changing details, not
+                        # for teaching from.
+                        "url": "{}?offset={}#lesson-{}".format(
+                            reverse("my-day"), (l.date - today).days, l.pk
+                        ),
                         "subject": l.syllabus.subject,
                         "grade": l.syllabus.grade,
                     }
@@ -1593,6 +1998,11 @@ def new_handout_view(request, lesson_id, admin_site):
             max_marks=marks,
             max_rounds=int(rounds),
             is_assignment="is_assignment" in request.POST,
+            # An exam paper is set the same way as an assignment; what
+            # differs is that it is never shown to the class in advance
+            # and its marks aggregate separately.
+            kind=(request.POST.get("kind") or models.HandoutKind.ASSIGNMENT),
+            counts_toward_grade="practice_only" not in request.POST,
         )
         models.HandoutLesson.objects.create(handout=handout, lesson=lesson)
 
@@ -1615,11 +2025,7 @@ def new_handout_view(request, lesson_id, admin_site):
                 if role == "handout":
                     _set_sheet(handout, attachment)
                 else:
-                    models.AttachmentLink.objects.get_or_create(
-                        attachment=attachment, content_type=content_type,
-                        object_id=handout.pk, voided=False,
-                        defaults={"role": role},
-                    )
+                    _link_file(handout, attachment, role)
 
         if "activate" in request.POST:
             handout.activate(user=request.user)
@@ -1636,6 +2042,7 @@ def new_handout_view(request, lesson_id, admin_site):
 
     context = {
         **admin_site.each_context(request),
+        "kinds": models.HandoutKind.choices,
         "title": "New handout",
         "lesson": lesson,
         "topics": topics,
@@ -1820,6 +2227,136 @@ def assignments_view(request, admin_site):
 # ---------------------------------------------------------------------
 # Checking — the examiner's queue, and one piece of work at a time
 # ---------------------------------------------------------------------
+def _may_approve(user):
+    """
+    Who may release an examiner's mark to the student.
+
+    The class teacher signs off their own class's work; a head of
+    department or an admin may sign off anyone's. An examiner may not
+    approve their own marking — that is the whole point of the step.
+    """
+    return (
+        user.is_superuser
+        or access.has_role(
+            user, access.TEACHING_STAFF, access.HEAD_OF_DEPARTMENT,
+            access.ACADEMIC_ADMIN, access.ADMIN,
+        )
+    )
+
+
+def approvals_view(request, admin_site):
+    """
+    The teacher's sign-off list: marks the examiner has checked, waiting to
+    be released to the student.
+
+    Grouped by class so the eye lands on one lesson's worth at a time.
+    Each row can be approved (the student sees it), sent back to the
+    examiner to re-check, or sent back to the student to redo.
+    """
+    if not _may_approve(request.user):
+        raise PermissionDenied
+
+    teacher = _teacher_for(request.user)
+    # An owner or admin with no Teacher record approves across the school;
+    # a class teacher only their own subjects and grades.
+    wide = teacher is None or access.has_role(
+        request.user, access.HEAD_OF_DEPARTMENT, access.ACADEMIC_ADMIN, access.ADMIN,
+    ) or request.user.is_superuser
+    syllabus_ids = None if wide else set(
+        _syllabi_for(teacher).values_list("pk", flat=True)
+    )
+
+    if request.method == "POST":
+        submission = models.Submission.objects.filter(
+            pk=request.POST.get("submission"), voided=False
+        ).select_related("handout", "handout__syllabus", "enrolment",
+                         "enrolment__student").first()
+        action = request.POST.get("action")
+        if submission is None:
+            messages.error(request, "That submission could not be found.")
+        elif syllabus_ids is not None and submission.handout.syllabus_id not in syllabus_ids:
+            raise PermissionDenied
+        elif action == "approve":
+            submission.approve(user=request.user)
+            messages.success(
+                request,
+                f"{submission.enrolment.student.full_name}'s work is approved and "
+                "is now in their account.",
+            )
+        elif action == "send_back":
+            submission.send_back_to_examiner(
+                user=request.user,
+                reason=(request.POST.get("reason") or "").strip()[:255],
+            )
+            messages.success(
+                request,
+                f"Sent back to the examiner to look at again. It has left your list.",
+            )
+        elif action == "request_redo":
+            submission.request_redo(
+                user=request.user,
+                reason=(request.POST.get("reason") or "").strip()[:255],
+            )
+            messages.success(
+                request,
+                f"{submission.enrolment.student.full_name} has been asked to do "
+                "this again. It is back in their My work.",
+            )
+        return redirect(reverse("approvals"))
+
+    waiting = (
+        models.Submission.objects
+        .filter(voided=False, state=models.SubmissionState.MARKED)
+        .select_related("handout", "handout__syllabus", "handout__syllabus__grade",
+                        "handout__syllabus__subject", "enrolment", "enrolment__student",
+                        "marked_by")
+        .order_by("handout__syllabus__grade__sort_order",
+                  "handout__syllabus__subject__short_name", "date_marked")
+    )
+    if syllabus_ids is not None:
+        waiting = waiting.filter(handout__syllabus_id__in=syllabus_ids)
+
+    classes, index = [], {}
+    for sub in waiting:
+        syllabus = sub.handout.syllabus
+        key = syllabus.pk
+        if key not in index:
+            index[key] = {"syllabus": syllabus, "rows": []}
+            classes.append(index[key])
+        totals = sub.line_totals()
+        index[key]["rows"].append({
+            "submission": sub,
+            "student": sub.enrolment.student,
+            "handout": sub.handout,
+            "marked_by": sub.marked_by,
+            # In a small academy the same person often teaches and examines
+            # a subject. That is allowed, but it is not a second pair of
+            # eyes, and the screen says so rather than pretending otherwise.
+            "self_check": bool(sub.marked_by_id) and sub.marked_by_id == request.user.id,
+            "marks": totals if totals["count"] else None,
+            "checked": [
+                {"name": a.title or a.original_filename,
+                 "url": a.file.url if a.file else ""}
+                for a in sub.checked_files()
+            ],
+            "work": [
+                {"name": a.title or a.original_filename,
+                 "url": a.file.url if a.file else ""}
+                for a in sub.work_files()
+            ],
+            "check_url": reverse("check-submission", args=[sub.pk]),
+        })
+
+    total = sum(len(c["rows"]) for c in classes)
+    context = {
+        **admin_site.each_context(request),
+        "title": "To approve",
+        "classes": classes,
+        "total": total,
+    }
+    return TemplateResponse(request, "admin/approvals.html", context)
+
+
 def _may_check(user):
     return (
         user.is_superuser
@@ -1828,6 +2365,174 @@ def _may_check(user):
             access.ADMIN, access.HEAD_OF_DEPARTMENT,
         )
     )
+
+
+def _submission_status(sub):
+    """
+    Where one submission stands, in the examiner's terms.
+
+    'waiting' is the only thing on their plate; 'redo' is back with the
+    student; 'checked' is done. The queue works waiting; the browser
+    shows all three so nothing looks lost.
+    """
+    if sub is None:
+        return "missing"
+    if sub.needs_examiner:               # never checked, or bounced back
+        return "waiting"
+    if sub.awaits_redo:
+        return "redo"
+    if sub.awaits_approval:              # checked, with the teacher now
+        return "approval"
+    if sub.is_released:
+        return "released"
+    return "waiting"
+
+
+def checking_browse_view(request, admin_site):
+    """
+    The examiner's home: class, then subject, then assignment.
+
+    The flat queue is the fastest way to clear a backlog, but it is no way
+    to find one class's work or answer "how is E1 English doing". This
+    walks the same submissions the other way round — down the structure a
+    teacher thinks in — and every assignment carries how many are still
+    waiting, so the eye goes straight to the ones with work on them.
+    """
+    if not _may_check(request.user):
+        raise PermissionDenied
+
+    # Every assignment that has been handed out at all. A draft nobody can
+    # submit to has nothing to check, so it is left out.
+    handouts = (
+        models.Handout.objects
+        .filter(voided=False, is_assignment=True)
+        .exclude(status=models.HandoutStatus.DRAFT)
+        .select_related("syllabus", "syllabus__grade", "syllabus__subject")
+        .order_by("syllabus__grade__sort_order", "syllabus__grade__level",
+                  "syllabus__subject__sort_order", "syllabus__subject__short_name",
+                  "-date_created")
+    )
+
+    # counts in one query rather than one per handout
+    S = models.SubmissionState
+    counts = {}
+    for row in (
+        models.Submission.objects
+        .filter(voided=False, handout__in=handouts)
+        .values("handout_id", "state")
+    ):
+        bucket = counts.setdefault(row["handout_id"], {"waiting": 0, "checked": 0,
+                                                       "redo": 0, "handed_in": 0})
+        bucket["handed_in"] += 1
+        state = row["state"]
+        if state in (S.SUBMITTED, S.SENT_BACK):
+            bucket["waiting"] += 1        # examiner must act
+        elif state == S.RETURNED:
+            bucket["redo"] += 1           # back with the student
+        else:
+            bucket["checked"] += 1        # checked (awaiting approval or released)
+
+    # group grade -> subject -> [assignments]
+    classes = []
+    grade_index = {}
+    for handout in handouts:
+        grade = handout.syllabus.grade
+        subject = handout.syllabus.subject
+        c = counts.get(handout.pk, {"waiting": 0, "checked": 0, "redo": 0, "handed_in": 0})
+
+        gkey = grade.pk
+        if gkey not in grade_index:
+            grade_index[gkey] = {"grade": grade, "waiting": 0, "subjects": {},
+                                 "sub_order": []}
+            classes.append(grade_index[gkey])
+        gentry = grade_index[gkey]
+        gentry["waiting"] += c["waiting"]
+
+        skey = subject.pk
+        if skey not in gentry["subjects"]:
+            gentry["subjects"][skey] = {"subject": subject, "waiting": 0, "rows": []}
+            gentry["sub_order"].append(skey)
+        sentry = gentry["subjects"][skey]
+        sentry["waiting"] += c["waiting"]
+        sentry["rows"].append({
+            "handout": handout,
+            "counts": c,
+            "url": reverse("checking-assignment", args=[handout.pk]),
+        })
+
+    # flatten the subject dicts into ordered lists for the template
+    for gentry in classes:
+        gentry["subjects"] = [gentry["subjects"][k] for k in gentry["sub_order"]]
+
+    total_waiting = sum(g["waiting"] for g in classes)
+
+    context = {
+        **admin_site.each_context(request),
+        "title": "Checking",
+        "classes": classes,
+        "total_waiting": total_waiting,
+        "queue_url": reverse("checking-queue"),
+    }
+    return TemplateResponse(request, "admin/checking_browse.html", context)
+
+
+def checking_assignment_view(request, handout_id, admin_site):
+    """
+    One assignment: every student who handed it in, and where each stands.
+
+    This is the checking equivalent of the teacher's handout roll, but
+    turned to the checker's job: waiting work first, a Check button on
+    each, and the mark once it is done.
+    """
+    if not _may_check(request.user):
+        raise PermissionDenied
+
+    handout = get_object_or_404(models.Handout, pk=handout_id)
+
+    submissions = (
+        models.Submission.objects
+        .filter(handout=handout, voided=False)
+        .select_related("enrolment", "enrolment__student", "marked_by")
+        .order_by("enrolment__student__last_name", "enrolment__student__first_name",
+                  "round_no")
+    )
+    # latest round per student — that is the one to act on
+    latest = {}
+    for sub in submissions:
+        latest[sub.enrolment_id] = sub
+
+    order = {"waiting": 0, "redo": 1, "checked": 2}
+    rows = []
+    for sub in latest.values():
+        status = _submission_status(sub)
+        totals = sub.line_totals()
+        rows.append({
+            "submission": sub,
+            "student": sub.enrolment.student,
+            "status": status,
+            "url": reverse("check-submission", args=[sub.pk]),
+            "marks": totals if totals["count"] else None,
+            "sort": (order.get(status, 3),
+                     sub.enrolment.student.last_name or "",
+                     sub.enrolment.student.first_name or ""),
+        })
+    rows.sort(key=lambda r: r["sort"])
+
+    waiting = sum(1 for r in rows if r["status"] == "waiting")
+
+    context = {
+        **admin_site.each_context(request),
+        "title": f"{handout.code} — checking",
+        "handout": handout,
+        "rows": rows,
+        "waiting": waiting,
+        "handed_in": len(rows),
+        "class_total": handout.completion()["total"],
+        "sheet": _handout_files(handout, "handout"),
+        "scheme": _handout_files(handout, "scheme"),
+        "browse_url": reverse("checking-browse"),
+    }
+    return TemplateResponse(request, "admin/checking_assignment.html", context)
 
 
 def checking_queue_view(request, admin_site):
@@ -1843,7 +2548,8 @@ def checking_queue_view(request, admin_site):
 
     waiting = (
         models.Submission.objects
-        .filter(voided=False, state=models.SubmissionState.SUBMITTED)
+        .filter(voided=False, state__in=[models.SubmissionState.SUBMITTED,
+                                        models.SubmissionState.SENT_BACK])
         .select_related("handout", "handout__syllabus", "handout__syllabus__subject",
                         "handout__syllabus__grade", "enrolment", "enrolment__student")
         .order_by("time_submitted")
@@ -1895,6 +2601,39 @@ def check_submission_view(request, submission_id, admin_site):
         marks = (request.POST.get("awarded_marks") or "").strip() or None
         feedback = (request.POST.get("feedback") or "").strip()
 
+        # The breakdown arrives as parallel lists — the whole table is
+        # posted at once, so rows can be added and removed in the browser
+        # and saved in one go, the same way the lesson log works.
+        ids = request.POST.getlist("line_id")
+        labels = request.POST.getlist("line_label")
+        out_ofs = request.POST.getlist("line_out_of")
+        awardeds = request.POST.getlist("line_awarded")
+        comments = request.POST.getlist("line_comment")
+        kept, order = set(), 0
+        for i, label in enumerate(labels):
+            label = (label or "").strip()
+            if not label:
+                continue                        # a blank row is not a part
+            line = None
+            if i < len(ids) and ids[i]:
+                line = models.MarkLine.objects.filter(
+                    pk=ids[i], submission=submission, voided=False
+                ).first()
+            if line is None:
+                line = models.MarkLine(submission=submission)
+            line.label = label[:64]
+            line.out_of = _decimal(out_ofs[i] if i < len(out_ofs) else 0)
+            line.awarded = _decimal(awardeds[i] if i < len(awardeds) else 0)
+            line.comment = (comments[i] if i < len(comments) else "").strip()[:255]
+            line.sort_order = order
+            line.save()
+            kept.add(line.pk)
+            order += 1
+        if labels:                              # the table was on this form
+            for line in submission.mark_lines.filter(voided=False):
+                if line.pk not in kept:
+                    line.void(reason="Removed from the breakdown.")
+
         content_type = ContentType.objects.get_for_model(models.Submission)
         stored = 0
         for upload in request.FILES.getlist("checked"):
@@ -1928,7 +2667,8 @@ def check_submission_view(request, submission_id, admin_site):
         submission.mark(user=request.user, marks=marks, feedback=feedback)
         messages.success(
             request,
-            f"{submission.code} checked. The student and their teacher can see it.",
+            f"{submission.code} checked and sent to the class teacher for approval. "
+            "The student sees nothing until the teacher releases it.",
         )
         return redirect(reverse("checking-queue"))
 
@@ -1956,6 +2696,10 @@ def check_submission_view(request, submission_id, admin_site):
         ],
         "scheme": _handout_files(handout, "scheme"),
         "sheet": _handout_files(handout, "handout"),
+        "lines": submission.lines(),
+        "totals": submission.line_totals(),
+        # If the teacher bounced this back, show why, right at the top.
+        "sent_back_reason": submission.sent_back_reason if submission.sent_back else "",
         "queue_url": reverse("checking-queue"),
     }
     return TemplateResponse(request, "admin/check_submission.html", context)

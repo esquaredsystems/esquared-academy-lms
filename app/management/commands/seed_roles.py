@@ -68,6 +68,7 @@ ROLE_PERMISSIONS = {
     # Academic authority. The one role that may lock a paper — see
     # `access.PAPER_APPROVAL_ROLES` and `may_approve_papers`.
     access.HEAD_OF_DEPARTMENT: {
+        "notice": ALL,
         # Reviews and approves lessons — see access.may_approve_lessons.
         **{m: ALL for m in LESSONS},
         **{m: ALL for m in CURRICULUM},
@@ -103,6 +104,7 @@ ROLE_PERMISSIONS = {
         "handout": ALL,
         "handoutlesson": ALL,
         "submission": EDIT,
+        "markline": EDIT,
         **{m: READ for m in CURRICULUM},
         **{m: ALL for m in ATTENDANCE},
         **{m: EDIT for m in FILES},
@@ -120,6 +122,8 @@ ROLE_PERMISSIONS = {
         "studentcohort": ALL,
         "cohortmembership": ALL,
         "teachingassignment": READ,
+        # Puts exam timetables and syllabi on the students' notice board.
+        "notice": ALL,
     },
 
     # Composes questions and drafts papers. No student data at all, so a
@@ -138,23 +142,28 @@ ROLE_PERMISSIONS = {
     # Confirms or overrides what the grader proposed. Cannot touch the
     # paper or the questions, so a mark cannot be defended by rewriting
     # the question after the fact.
+    # The examiner checks scanned work — handout submissions — and nothing
+    # else. Everything they need is on the Checking pages, which are custom
+    # views guarded by role, so the role is given only the write access
+    # those pages actually use. Curriculum, questions, papers, the online-
+    # marking machinery and the student pages are deliberately left out:
+    # having them cluttered the menu and made the account feel like a
+    # teacher's. (The earlier attachment: EDIT was silently overwritten by
+    # a later attachment: READ in this same dict, which had quietly left
+    # the examiner unable to upload a checked file at all.)
     access.MARKING_REVIEWER: {
-        "handout": READ,
-        "handoutsheet": READ,
-        "submission": EDIT,
+        "handoutsheet": READ,               # the sheet and answer scheme
+        "submission": EDIT,                 # also what puts Checking in the menu
+        "markline": EDIT,
         # Uploading the checked version writes a file and links it.
         "attachment": EDIT,
         "attachmentlink": EDIT,
         "uploadsession": EDIT,
-        **{m: READ for m in CURRICULUM},
-        **{m: READ for m in QUESTIONS},
-        **{m: READ for m in PAPERS},
-        **{m: EDIT for m in MARKING},
-        "student": READ,
-        "enrolment": READ,
-        "studentsubject": READ,
-        "attachment": READ,
-        "attachmentlink": READ,
+        # Sees what the marking service proposed, and what it said about
+        # its own confidence. Read-only: an examiner corrects a mark by
+        # editing the mark line, which records them as its author, not by
+        # editing the machine's record of what it originally said.
+        "autogradejob": READ,
     },
 
     # Handles the paper, not the verdict: scans scripts and matches each
@@ -193,6 +202,7 @@ ROLE_PERMISSIONS = {
         "handout": READ,
         "handoutlesson": READ,
         "submission": ("view", "add"),   # handing work in writes a row
+        "markline": READ,                # the marks breakdown, read only
         **{m: READ for m in CURRICULUM},
         "student": READ,
         "enrolment": READ,
@@ -212,6 +222,7 @@ ROLE_PERMISSIONS = {
         **{m: READ for m in LESSONS},
         "handout": READ,
         "submission": READ,
+        "markline": READ,
         **{m: READ for m in CURRICULUM},
         "student": READ,
         "enrolment": READ,

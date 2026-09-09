@@ -1,0 +1,107 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Checking · {{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .ck-head{margin:0 0 6px}
+  .ck-head h1{margin:0 0 4px;font-size:26px}
+  .ck-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  .ck-head .sub a{color:var(--ac-accent-text,#8c491a)}
+  .cls{background:var(--ac-card,#f9f4ed);border:1px solid var(--ac-line,#dcd3c4);
+    border-radius:14px;padding:0;margin:16px 0 0;overflow:hidden}
+  .cls > summary{list-style:none;cursor:pointer;padding:15px 20px;display:flex;
+    align-items:center;gap:12px}
+  .cls > summary::-webkit-details-marker{display:none}
+  .cls > summary .chev{color:var(--ac-ink-3,#645c50);transition:transform .15s;font-size:13px}
+  .cls[open] > summary .chev{transform:rotate(90deg)}
+  .cls h2{margin:0;font-size:18px}
+  .cls .count{margin-left:auto;font-size:13px;color:var(--ac-ink-3,#645c50)}
+  .cls .count b{color:#8c2f2f}
+  .subj{padding:0 20px 6px 20px}
+  .subj h3{font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:14px 0 8px;padding-bottom:6px;
+    border-bottom:1px solid var(--ac-line,#e6dfd2)}
+  table.a{width:100%;border-collapse:collapse;font-size:14px;margin:0 0 6px}
+  table.a td{padding:9px 8px;border-bottom:1px solid var(--ac-line,#efe9df);vertical-align:middle}
+  table.a tr:last-child td{border-bottom:0}
+  table.a .name{font-weight:500}
+  table.a .code{font-size:12px;color:var(--ac-ink-3,#645c50)}
+  .tag{font-size:11px;padding:3px 10px;border-radius:999px;white-space:nowrap;
+    display:inline-block}
+  .tag.wait{background:#fbe4e4;color:#8c2f2f;font-weight:600}
+  .tag.none{background:var(--ac-card-2,#eee7db);color:var(--ac-ink-3,#645c50)}
+  .tag.done{background:#dcefdc;color:#2f6b35}
+  .tag.redo{background:#ffe9c7;color:#8a5a12}
+  a.open{display:inline-block;padding:7px 16px;border-radius:999px;
+    background:var(--ac-accent,#c67139);color:#fff;text-decoration:none;font-size:13px}
+  a.open.quiet{background:var(--ac-card-2,#eee7db);color:var(--ac-ink-2,#474238)}
+  .empty{color:var(--ac-ink-3,#645c50);font-size:14px;margin-top:16px}
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}<div class="breadcrumbs">Checking</div>{% endblock %}
+
+{% block content %}
+<div class="ck-head">
+  <h1>Checking</h1>
+  <div class="sub">
+    {% if total_waiting %}
+      {{ total_waiting }} piece{{ total_waiting|pluralize }} waiting to be checked.
+    {% else %}
+      Nothing waiting — you are all caught up.
+    {% endif %}
+    <a href="{{ queue_url }}">Work oldest-first instead →</a>
+  </div>
+</div>
+
+{% for c in classes %}
+  <details class="cls" {% if c.waiting %}open{% endif %}>
+    <summary>
+      <span class="chev">▶</span>
+      <h2>{{ c.grade }}</h2>
+      <span class="count">
+        {% if c.waiting %}<b>{{ c.waiting }} waiting</b>{% else %}nothing waiting{% endif %}
+      </span>
+    </summary>
+
+    {% for s in c.subjects %}
+      <div class="subj">
+        <h3>{{ s.subject.full_name|default:s.subject.short_name }}
+          {% if s.waiting %}· {{ s.waiting }} waiting{% endif %}</h3>
+        <table class="a">
+          {% for row in s.rows %}
+            <tr>
+              <td>
+                <div class="name">{{ row.handout.topic_text|default:row.handout.title }}</div>
+                <div class="code">{{ row.handout.code }}
+                  {% if row.handout.due_date %}· due {{ row.handout.due_date|date:"j M" }}{% endif %}</div>
+              </td>
+              <td>
+                {% if row.counts.waiting %}
+                  <span class="tag wait">{{ row.counts.waiting }} to check</span>
+                {% elif row.counts.handed_in %}
+                  <span class="tag done">all checked</span>
+                {% else %}
+                  <span class="tag none">none handed in</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if row.counts.redo %}<span class="tag redo">{{ row.counts.redo }} redo</span>{% endif %}
+              </td>
+              <td style="color:var(--ac-ink-3,#645c50);font-size:13px">
+                {{ row.counts.handed_in }} handed in
+              </td>
+              <td style="text-align:right">
+                <a class="open {% if not row.counts.waiting %}quiet{% endif %}"
+                   href="{{ row.url }}">Open</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </table>
+      </div>
+    {% endfor %}
+  </details>
+{% empty %}
+  <p class="empty">No assignments have been handed out yet. Work appears here the
+    moment a student hands something in.</p>
+{% endfor %}
+{% endblock %}

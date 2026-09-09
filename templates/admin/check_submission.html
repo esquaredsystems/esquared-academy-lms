@@ -5,6 +5,10 @@
   .cs-head{margin:0 0 20px}
   .cs-head h1{margin:0 0 4px;font-size:24px}
   .cs-head .sub{color:var(--ac-ink-3,#645c50);font-size:14px}
+  .sentback{background:#fdf1e7;border:1px solid #e6c39c;border-radius:12px;
+    padding:12px 16px;margin:0 0 18px;font-size:14px;line-height:1.5}
+  .sentback b{color:#8a4a12}
+  .sentback span{display:block;margin:3px 0;color:var(--ac-ink,#201e1d)}
   .cols{display:flex;gap:22px;flex-wrap:wrap}
   .col{flex:1 1 320px;min-width:300px}
   h2.sec{font-size:11px;letter-spacing:.1em;text-transform:uppercase;
@@ -27,6 +31,19 @@
     border:1px solid var(--ac-line,#dcd3c4)}
   .field textarea{min-height:90px}
   .field .hint{font-size:12px;color:var(--ac-ink-3,#645c50);margin:5px 0 0}
+  table.bd{width:100%;border-collapse:collapse;font-size:13px}
+  table.bd th{text-align:left;font-size:10px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--ac-ink-3,#645c50);padding:0 6px 6px;font-weight:600}
+  table.bd td{padding:0 6px 6px}
+  table.bd input{width:100%;padding:7px 10px;border-radius:8px;font-size:13px;
+    font-family:inherit;border:1px solid var(--ac-line,#dcd3c4);background:#fff}
+  table.bd td:nth-child(2) input,table.bd td:nth-child(3) input{width:74px}
+  table.bd tfoot th{border-top:1px solid var(--ac-line,#dcd3c4);padding-top:9px;
+    font-size:13px;text-transform:none;letter-spacing:0;color:var(--ac-ink,#201e1d)}
+  table.bd button{border:1px solid var(--ac-line,#dcd3c4);background:#fff;
+    border-radius:8px;cursor:pointer;padding:6px 10px;font-size:13px;line-height:1}
+  table.bd button.minus{color:#8c2f2f}
+  table.bd button.plus{color:var(--ac-ink-2,#474238);font-size:12px}
   .actions{display:flex;gap:10px;align-items:center;margin-top:6px}
   .actions button{padding:11px 26px;border:0;border-radius:999px;cursor:pointer;
     font-size:14px;background:#2f6b35;color:#fff}
@@ -53,6 +70,14 @@
     {% if submission.round_no > 1 %} · attempt {{ submission.round_no }}{% endif %}
   </div>
 </div>
+
+{% if sent_back_reason %}
+  <div class="sentback">
+    <b>The teacher sent this back to you to look at again.</b>
+    <span>{{ sent_back_reason }}</span>
+    Re-check it and hand it back — it returns to the teacher for approval.
+  </div>
+{% endif %}
 
 <div class="cols">
   <div class="col">
@@ -104,10 +129,52 @@
       </div>
 
       <div class="field">
-        <label for="awarded_marks">Marks{% if handout.max_marks %} out of {{ handout.max_marks }}{% endif %}</label>
-        <input type="number" id="awarded_marks" name="awarded_marks" step="0.5" min="0"
-               value="{{ submission.awarded_marks|default_if_none:'' }}">
-        <p class="hint">Arrived at however the rubric says.</p>
+        <label>The marks, part by part</label>
+        <table class="bd" id="bd">
+          <thead>
+            <tr><th>Part</th><th>Got</th><th>Out of</th><th>Why</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for line in lines %}
+              <tr>
+                <td><input type="hidden" name="line_id" value="{{ line.pk }}">
+                    <input type="text" name="line_label" value="{{ line.label }}"
+                           placeholder="Q1"></td>
+                <td><input type="number" name="line_awarded" step="0.5" min="0"
+                           value="{{ line.awarded|floatformat:"-2" }}"></td>
+                <td><input type="number" name="line_out_of" step="0.5" min="0"
+                           value="{{ line.out_of|floatformat:"-2" }}"></td>
+                <td><input type="text" name="line_comment" value="{{ line.comment }}"
+                           placeholder="a few words the student will read"></td>
+                <td><button type="button" class="minus" title="Remove this line">−</button></td>
+              </tr>
+            {% empty %}
+              {% for i in "123" %}
+                <tr>
+                  <td><input type="hidden" name="line_id" value="">
+                      <input type="text" name="line_label" placeholder="Q{{ forloop.counter }}"></td>
+                  <td><input type="number" name="line_awarded" step="0.5" min="0"></td>
+                  <td><input type="number" name="line_out_of" step="0.5" min="0"></td>
+                  <td><input type="text" name="line_comment"
+                             placeholder="a few words the student will read"></td>
+                  <td><button type="button" class="minus" title="Remove this line">−</button></td>
+                </tr>
+              {% endfor %}
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr><th>Total</th><th id="bdgot">0</th><th id="bdout">0</th>
+                <th colspan="2"><button type="button" id="bdadd" class="plus">+ another part</button></th></tr>
+          </tfoot>
+        </table>
+        <p class="hint">
+          Leave a part's name blank and that line is dropped. The total is
+          the sum of these lines — it is what the student and their teacher
+          see, so there is no separate figure to keep in step.
+          {% if handout.max_marks %}
+            This handout is out of {{ handout.max_marks }}.
+          {% endif %}
+        </p>
       </div>
 
       <div class="field">
@@ -122,4 +189,44 @@
     </form>
   </div>
 </div>
+
+<script>
+(function () {
+  var table = document.getElementById("bd");
+  if (!table) return;
+  var body = table.tBodies[0];
+
+  function total() {
+    var got = 0, out = 0;
+    body.querySelectorAll("tr").forEach(function (tr) {
+      if (!tr.querySelector("[name=line_label]").value.trim()) return;
+      got += parseFloat(tr.querySelector("[name=line_awarded]").value) || 0;
+      out += parseFloat(tr.querySelector("[name=line_out_of]").value) || 0;
+    });
+    // Trim a trailing .00 so whole marks read as whole numbers.
+    document.getElementById("bdgot").textContent = String(+got.toFixed(2));
+    document.getElementById("bdout").textContent = String(+out.toFixed(2));
+  }
+
+  table.addEventListener("input", total);
+  table.addEventListener("click", function (e) {
+    if (e.target.classList.contains("minus")) {
+      var rows = body.querySelectorAll("tr");
+      if (rows.length > 1) e.target.closest("tr").remove();
+      else rows[0].querySelectorAll("input").forEach(function (i) { i.value = ""; });
+      total();
+    }
+  });
+  document.getElementById("bdadd").addEventListener("click", function () {
+    var row = body.querySelector("tr").cloneNode(true);
+    row.querySelectorAll("input").forEach(function (i) {
+      i.value = "";
+      i.removeAttribute("value");
+    });
+    body.appendChild(row);
+    row.querySelector("[name=line_label]").focus();
+  });
+  total();
+})();
+</script>
 {% endblock %}
