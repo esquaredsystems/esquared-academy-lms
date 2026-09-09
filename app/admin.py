@@ -111,9 +111,23 @@ class AuditAdmin(TruncatedColumnsMixin, admin.ModelAdmin):
         )
 
     def get_queryset(self, request):
+        """
+        Every row of the table — then narrowed to the rows this person may see.
+
+        Model permissions decide whether a table is reachable at all; they
+        say nothing about *which* rows, and a student holds view_student so
+        that their own record can be shown. Without the scoping below, that
+        permission opened the whole student list — every child's name,
+        admission number, guardian contact and address — to any signed-in
+        student. The API had always applied `access.scope_queryset`; the
+        admin never did, and the admin is where the actual screens live.
+
+        Staff roles are unrestricted by `scope_queryset`, so this changes
+        nothing for a teacher, an examiner or an administrator.
+        """
         model = self.model
         manager = getattr(model, "all_objects", model._default_manager)
-        return manager.get_queryset()
+        return access.scope_queryset(request.user, manager.get_queryset())
 
     def save_model(self, request, obj, form, change):
         if change:

@@ -45,7 +45,7 @@ ACCOUNTS = {
 #: Roles whose accounts may open the admin at all. A real student or
 #: guardian account should never have is_staff; --student-admin grants it
 #: anyway, for the sake of trying row scoping in the browser.
-NON_ADMIN_ROLES = {access.STUDENT, access.GUARDIAN, access.GUEST}
+NON_ADMIN_ROLES = access.NON_ADMIN_ROLES
 
 
 class Command(BaseCommand):

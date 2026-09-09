@@ -68,7 +68,10 @@ class Command(BaseCommand):
                 raise CommandError(
                     f"No account called {username!r}.\n"
                     + (f"Did you mean one of: {', '.join(near)}\n" if near else "")
-                    + "Pass --create to create it, or run seed_student_logins first."
+                    + "\nTo create it as you set the password:\n"
+                    + f"    manage.py reset_login {username} --set --create\n"
+                    + "To create accounts for every student at once:\n"
+                    + "    manage.py seed_student_logins --commit"
                 )
 
         groups = list(user.groups.values_list("name", flat=True))

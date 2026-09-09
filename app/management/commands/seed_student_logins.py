@@ -2,7 +2,7 @@
 Management command: seed_student_logins
 =======================================
 Creates a Django AppUser account for every Student record that does not already
-have one.  The username is the admission_number field.
+have one.  The username is the admission_no field.
 
 Usage
 -----
@@ -13,9 +13,11 @@ The accounts are created with an *unusable* password (no one can log in yet).
 Use reset_login <admission_no> --set afterwards to activate each one.
 """
 
-from django.core.management.base import BaseCommand
+from django.contrib.auth.models import Group
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from app import access
 from app.models import AppUser, Student
 
 
@@ -41,10 +43,17 @@ class Command(BaseCommand):
                 )
             )
 
+        try:
+            student_group = Group.objects.get(name=access.STUDENT)
+        except Group.DoesNotExist:
+            raise CommandError(
+                "There is no 'Student' role yet. Run:  manage.py seed_roles"
+            )
+
         students = (
             Student.objects.filter(voided=False)
             .select_related("user")
-            .order_by("admission_number")
+            .order_by("admission_no")
         )
 
         created = 0
@@ -52,14 +61,23 @@ class Command(BaseCommand):
         errors = []
 
         for student in students:
-            adm = student.admission_number
+            adm = student.admission_no
             if not adm:
                 errors.append(f"  SKIP  {student.first_name} {student.last_name or ''} — no admission number")
                 skipped += 1
                 continue
 
-            if AppUser.objects.filter(username=adm).exists():
-                self.stdout.write(f"  EXISTS  {adm}  ({student.first_name} {student.last_name or ''})")
+            existing = AppUser.objects.filter(username=adm).first()
+            if existing is not None:
+                note = ""
+                if not existing.groups.exists() and not dry:
+                    existing.groups.add(student_group)
+                    note = "  (gave it the Student role)"
+                elif not existing.groups.exists():
+                    note = "  (has no role — would add Student)"
+                self.stdout.write(
+                    f"  EXISTS  {adm}  ({student.first_name} {student.last_name or ''}){note}"
+                )
                 skipped += 1
                 continue
 
@@ -74,8 +92,19 @@ class Command(BaseCommand):
                             first_name=student.first_name,
                             last_name=student.last_name or "",
                             is_active=True,
-                            is_staff=False,
+                            # The whole interface lives under /admin/, and
+                            # Django's admin login refuses anyone without
+                            # this flag — so a student cannot even sign in
+                            # without it. What actually keeps a student out
+                            # of everything else is the Student role's
+                            # narrow permissions plus the row scoping in
+                            # access.py, which AuditAdmin now applies.
+                            is_staff=True,
                         )
+                        # Without a role the account signs in to an empty
+                        # screen, which reads as a broken system rather than
+                        # a missing step.
+                        user.groups.add(student_group)
                         # Link the user back to the Student record if the FK is free
                         if student.user_id is None:
                             student.user = user

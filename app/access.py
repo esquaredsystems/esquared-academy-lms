@@ -54,6 +54,17 @@ STUDENT = "Student"
 GUARDIAN = "Guardian"
 GUEST = "Guest"
 
+#: Roles that are not administrators of anything.
+#:
+#: Everything a person sees lives under /admin/, and Django's admin login
+#: refuses an account without `is_staff` — so these accounts do carry the
+#: flag, or they could not sign in at all. It is a door key, not a rank:
+#: what actually holds a student to their own rows is the role's narrow
+#: permissions plus `scope_queryset`, which the admin applies on every
+#: list. The distinction matters when deciding what to grant, so the set
+#: is named here rather than inferred at each call site.
+NON_ADMIN_ROLES = {STUDENT, GUARDIAN, GUEST}
+
 ROLES = [
     ADMIN,
     ACADEMIC_ADMIN,
