@@ -7,7 +7,7 @@
 <div id="content-main" class="tr-grid">
   <p class="tr-lead">
     {{ student }} — {{ syllabus.subject.full_name }},
-    {{ syllabus.grade.short_name }} {{ syllabus.academic_year }}.
+    {{ syllabus.academy_class.short_name }} {{ syllabus.academic_year }}.
     A topic counts as passed at {{ pass_mark|floatformat:"-2" }}% or above;
     the pass mark lives on the syllabus, so changing it there re-reads
     every mark below without re-entering any of them.

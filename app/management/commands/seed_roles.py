@@ -24,77 +24,26 @@ ALL = ("view", "add", "change", "delete")
 EDIT = ("view", "add", "change")
 READ = ("view",)
 
-CURRICULUM = ["grade", "subject", "topic", "syllabus", "syllabustopic"]
-QUESTIONS = ["question", "binaryconfig", "numericconfig", "evaluationprompt", "promptversion"]
-PAPERS = ["questionpaper", "paperversion", "paperitem", "paperassignment"]
-MARKING = ["attempt", "answer", "evaluation", "topicresult"]
+CURRICULUM = ["academyclass", "subject", "topic", "syllabus", "syllabustopic"]
+QUESTIONS = ["question", "questionattributetype", "questionattribute", "evaluationprompt", "promptversion"]
 ATTENDANCE = ["attendancesession", "attendancerecord"]
 FILES = ["attachment", "attachmentlink", "uploadsession"]
-PEOPLE = ["student", "teacher", "enrolment", "studentsubject", "teachingassignment",
-          "studentcohort", "cohortmembership", "guardianlink"]
 LESSONS = ["timetableslot", "lesson", "lessontopic", "lectureitem"]
-HANDOUTS = ["handout", "handoutlesson", "submission",
-            "handoutextension", "handoutsheet"]
 
 #: role -> {model_name: actions}
 ROLE_PERMISSIONS = {
-    access.ADMIN: "all",
+    # Everything: permissions, passwords, academic authority, accounts and
+    # office administration all live in one role now — see app/access.py's
+    # module docstring for why the old finer-grained split was folded in.
+    access.ADMINISTRATOR: "all",
 
-    # Everything a school runs on, but no control over who may do what.
-    # Permissions and passwords belong to IT Administrator; both sit under
-    # a superuser Owner login used sparingly.
-    access.ACADEMIC_ADMIN: {
-        **{m: ALL for m in LESSONS},
-        **{m: ALL for m in HANDOUTS},
-        **{m: ALL for m in CURRICULUM},
-        **{m: ALL for m in QUESTIONS},
-        **{m: ALL for m in PAPERS},
-        **{m: ALL for m in MARKING},
-        **{m: ALL for m in ATTENDANCE},
-        **{m: ALL for m in FILES},
-        **{m: ALL for m in PEOPLE},
-        "retentionpolicy": READ,
-        "purgerun": READ,
-    },
-
-    # Keeps the system running without seeing what is inside it. Accounts
-    # and permissions are Django's own `auth` tables, granted in `handle`.
-    access.IT_ADMIN: {
-        "retentionpolicy": EDIT,
-        "purgerun": READ,
-        "uploadsession": READ,
-    },
-
-    # Academic authority. The one role that may lock a paper — see
-    # `access.PAPER_APPROVAL_ROLES` and `may_approve_papers`.
-    access.HEAD_OF_DEPARTMENT: {
-        "notice": ALL,
-        # Reviews and approves lessons — see access.may_approve_lessons.
-        **{m: ALL for m in LESSONS},
-        **{m: ALL for m in CURRICULUM},
-        **{m: ALL for m in QUESTIONS},
-        **{m: ALL for m in PAPERS},
-        **{m: ALL for m in MARKING},
-        **{m: READ for m in ATTENDANCE},
-        **{m: EDIT for m in FILES},
-        "student": READ,
-        "teacher": READ,
-        "enrolment": READ,
-        "studentsubject": EDIT,
-        "studentcohort": ALL,
-        "cohortmembership": ALL,
-        "teachingassignment": ALL,
-        "guardianlink": READ,
-    },
-
-    # Teaching, and the pastoral side of it. Deliberately narrow: a
-    # teacher's screen should hold their lessons and their students and
-    # very little else. Paper setting and marking are separate roles, and
-    # a teacher who does those jobs is given those roles as well; the
-    # internals of papers (items, versions) and of guardian access are
-    # not a teacher's business and were removed on 5 September 2026 after
-    # seeing how much noise they added to the teacher's dashboard.
-    access.TEACHING_STAFF: {
+    # Teaching and the pastoral side of it, plus composing questions and
+    # drafting papers — the two used to be separate roles (Teaching Staff,
+    # Paper Setter) but a teacher doing both was already the normal case.
+    # Locking a paper or approving a lesson still needs Administrator —
+    # see access.PAPER_APPROVAL_ROLES / access.may_approve_lessons — so a
+    # teacher drafts and submits but never signs off on their own work.
+    access.TEACHER: {
         "timetableslot": READ,
         "lesson": EDIT,
         "lessontopic": ALL,
@@ -122,51 +71,31 @@ ROLE_PERMISSIONS = {
         "teachingassignment": READ,
         # Puts exam timetables and syllabi on the students' notice board.
         "notice": ALL,
-    },
-
-    # Composes questions and drafts papers. No student data at all, so a
-    # setter cannot see whose work their paper will be marked against.
-    access.PAPER_SETTER: {
-        **{m: READ for m in CURRICULUM},
+        # The question bank and draft papers.
         **{m: ALL for m in QUESTIONS},
         "questionpaper": ALL,
         "paperversion": EDIT,
         "paperitem": ALL,
-        "attachment": EDIT,
-        "attachmentlink": EDIT,
-        "uploadsession": EDIT,
     },
 
-    # Confirms or overrides what the grader proposed. Cannot touch the
-    # paper or the questions, so a mark cannot be defended by rewriting
-    # the question after the fact.
-    # The examiner checks scanned work — handout submissions — and nothing
-    # else. Everything they need is on the Checking pages, which are custom
-    # views guarded by role, so the role is given only the write access
-    # those pages actually use. Curriculum, questions, papers, the online-
-    # marking machinery and the student pages are deliberately left out:
-    # having them cluttered the menu and made the account feel like a
-    # teacher's. (The earlier attachment: EDIT was silently overwritten by
-    # a later attachment: READ in this same dict, which had quietly left
-    # the examiner unable to upload a checked file at all.)
-    access.MARKING_REVIEWER: {
+    # Confirms or overrides what the grader proposed, and handles the
+    # paper side of an exam sitting — scanning scripts and matching each
+    # to the right student and paper. These used to be separate roles
+    # (Marking Reviewer, Exam Operations); both are exam-administration
+    # jobs blind to the question bank and to course content.
+    # (The earlier attachment: EDIT was silently overwritten by a later
+    # attachment: READ in the old Marking Reviewer dict, which had quietly
+    # left the examiner unable to upload a checked file at all — the merge
+    # here keeps the broader FILES: ALL instead.)
+    access.EXAMINER: {
         "handoutsheet": READ,               # the sheet and answer scheme
         "submission": EDIT,                 # also what puts Checking in the menu
         "markline": EDIT,
-        # Uploading the checked version writes a file and links it.
-        "attachment": EDIT,
-        "attachmentlink": EDIT,
-        "uploadsession": EDIT,
         # Sees what the marking service proposed, and what it said about
         # its own confidence. Read-only: an examiner corrects a mark by
         # editing the mark line, which records them as its author, not by
         # editing the machine's record of what it originally said.
         "autogradejob": READ,
-    },
-
-    # Handles the paper, not the verdict: scans scripts and matches each
-    # to the right student and paper. Deliberately blind to grades.
-    access.EXAM_OPERATIONS: {
         **{m: READ for m in CURRICULUM},
         **{m: ALL for m in FILES},
         "questionpaper": READ,
@@ -178,20 +107,6 @@ ROLE_PERMISSIONS = {
         "enrolment": READ,
         "studentcohort": READ,
         "cohortmembership": READ,
-    },
-
-    access.NON_ACADEMIC_STAFF: {
-        **{m: ALL for m in ATTENDANCE},
-        "student": READ,
-        "enrolment": READ,
-        "grade": READ,
-        "syllabus": READ,
-        "studentcohort": READ,
-        "cohortmembership": READ,
-        "guardianlink": READ,
-        "attachment": EDIT,
-        "attachmentlink": EDIT,
-        "uploadsession": EDIT,
     },
 
     # Students and guardians read; row scoping decides whose rows.
@@ -259,29 +174,6 @@ class Command(BaseCommand):
                         permissions = list(Permission.objects.filter(content_type__app_label="app"))
                         permissions += list(
                             Permission.objects.filter(content_type__app_label="auth")
-                        )
-                    elif role == access.IT_ADMIN:
-                        # Accounts, groups and permissions live in Django's
-                        # own `auth` app, plus the handful of app tables
-                        # listed above. No student or assessment data.
-                        codenames = [
-                            f"{action}_{model}"
-                            for model, actions in spec.items()
-                            for action in actions
-                            if model in app_types
-                        ]
-                        permissions = list(
-                            Permission.objects.filter(
-                                content_type__app_label="app", codename__in=codenames
-                            )
-                        )
-                        permissions += list(
-                            Permission.objects.filter(content_type__app_label="auth")
-                        )
-                        permissions += list(
-                            Permission.objects.filter(
-                                content_type__app_label="app", codename__in=["view_appuser", "add_appuser", "change_appuser"]
-                            )
                         )
                     else:
                         codenames = [

@@ -2,7 +2,7 @@
 Print what each role can actually see in the admin.
 
     python manage.py role_audit
-    python manage.py role_audit --role "Paper Setter"
+    python manage.py role_audit --role "Teacher"
 
 The left menu is built by the theme, not by Django, so what a role is
 *shown* and what a role may *do* can drift apart. This reports the second

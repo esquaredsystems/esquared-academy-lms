@@ -4,9 +4,9 @@ Turn the weekly timetable into real lessons.
     python manage.py generate_lessons                      # this week
     python manage.py generate_lessons --weeks 2            # this week and next
     python manage.py generate_lessons --from 2026-09-14 --to 2026-09-18
-    python manage.py generate_lessons --grade S2 --dry-run
+    python manage.py generate_lessons --class S2 --dry-run
 
-`TimetableSlot` is the pattern — one subject, one grade, one day, one
+`TimetableSlot` is the pattern — one subject, one class, one day, one
 period, set once a year. `Lesson` is the class that actually happens on a
 date, and it is what everything else hangs off: the teaching timer, the
 lecture table, the log, and the assignments set from it.
@@ -61,7 +61,7 @@ class Command(BaseCommand):
                             help="How many weeks from the start date. Ignored when --to is given. Default 1.")
         parser.add_argument("--year", type=int, default=None,
                             help=f"Academic year to take slots from. Defaults to {current_academic_year()}.")
-        parser.add_argument("--grade", default=None, help="Only this class, e.g. S2.")
+        parser.add_argument("--class", dest="academy_class", default=None, help="Only this class, e.g. S2.")
         parser.add_argument("--dry-run", action="store_true", help="Report what would happen, write nothing.")
 
     def handle(self, *args, **options):
@@ -80,11 +80,11 @@ class Command(BaseCommand):
         slots = (
             models.TimetableSlot.objects
             .filter(voided=False, syllabus__academic_year=year, syllabus__voided=False)
-            .select_related("syllabus", "syllabus__grade", "syllabus__subject", "teacher")
+            .select_related("syllabus", "syllabus__academy_class", "syllabus__subject", "teacher")
             .order_by("day_of_week", "period")
         )
-        if options["grade"]:
-            slots = slots.filter(syllabus__grade__short_name=options["grade"])
+        if options["academy_class"]:
+            slots = slots.filter(syllabus__academy_class__short_name=options["academy_class"])
 
         by_day = {}
         for slot in slots:
@@ -93,7 +93,7 @@ class Command(BaseCommand):
         if not by_day:
             raise CommandError(
                 f"No timetable slots for academic year {year}"
-                + (f" and class {options['grade']}" if options["grade"] else "")
+                + (f" and class {options['academy_class']}" if options["academy_class"] else "")
                 + ".\nImport the timetable first:  manage.py import_setup docs/setup_data.json"
             )
 

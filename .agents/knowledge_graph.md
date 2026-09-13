@@ -3,8 +3,8 @@ doc: agent-knowledge-graph
 project: esquared-academy-lms
 repo: esquaredsystems/esquared-academy-lms (private)
 generated: 2026-09-13
-generated_by: claude (assessment from scratch, ast-based structural extraction + manual read of every non-generated module)
-covers_commit: 4ccaf6f "Add LMS setup and teacher workflow tooling"
+generated_by: claude (assessment from scratch, ast-based structural extraction + manual read of every non-generated module; updated same day after the attribute-type refactor, then again after the Grade→AcademyClass rename, the 12→6 role consolidation, and the curriculum-widget admin reorg below)
+covers_commit: 163833b "Adding instructions and knowledge graph for AI agents" + uncommitted attribute-type refactor (Question config + Student optional fields → attribute types; see §5.8) + uncommitted Grade→AcademyClass rename, role consolidation, and admin UI reorg (see §4.2, §5.1, §5.3, §8)
 freshness_contract: see .agents/instructions.md — this file must be updated in the same turn/commit that changes the code it describes
 NOTE: do not confuse this file with the *in-app* feature also called "knowledge graph"/"knowledge map"
       (templates/admin/knowledge_graph.html, TopicViewSet.tree(), student subject_panel/knowledge_map_panel,
@@ -86,7 +86,7 @@ app/                     # the one Django app — everything lives here
   demo_data.py   (133 lines) # deterministic fake school (3 teachers, 20 students, Karachi
                               # names) for the /admin/demo/ page. Void-tagged with "DEMO-" prefix.
   seed_data.py   (951 lines) # static data used by seed_curriculum: the whole Cambridge
-                              # O Level/Lower-Secondary curriculum (grades/subjects/topics).
+                              # O Level/Lower-Secondary curriculum (classes/subjects/topics).
   check_row_scoping.py (120) # standalone security smoke test (NOT test*.py — see §11 for why).
   tests.py      (2213 lines) # Django TestCase suite. See §11.
   templatetags/academy.py    # custom template tags for the admin templates.
@@ -172,25 +172,38 @@ unique_flags" → 0004-0006 added/populated/finalized `uuid`.
 
 ## 4.2 Domains and models (10 groups, matches JET_SIDE_MENU_ITEMS / the ERD)
 
-1. **Identity & people**: `AppUser` (AUTH_USER_MODEL), `Student`, `Teacher`,
+1. **Identity & people**: `AppUser` (AUTH_USER_MODEL), `Student` (national ID
+   type and a second guardian contact are NOT columns — they're
+   `StudentAttribute` rows, see §5.8; a `GuardianLinkInline` on `StudentAdmin`
+   shows a student's guardians without leaving the page), `Teacher`,
    `GuardianLink` (user ↔ student, `relationship`, `is_primary`,
-   `can_view_marks`).
-2. **Curriculum**: `Grade` (= class; `level` int, `is_terminal` bool — S3 is
-   the only grade where students choose subjects), `Subject`, `Topic`
-   (self-FK tree, `MAX_DEPTH=4`, materialized `path`/`depth`, `clean()`
-   enforces real ancestor not just any Topic id, `_reparent_descendants()`
-   rewrites path/depth for the whole subtree on move), `Syllabus` (one
-   subject+grade+year, `status` draft/published/retired,
-   `assessable_sections()`/`assessable_topics()`), `SyllabusTopic`
-   (syllabus×topic join, `weight_pct` — the importance number grading.py
-   uses).
-3. **Enrolment & cohorts**: `Enrolment` (student×grade×year, "one grade at a
-   time" invariant enforced in app code not DB), `StudentSubject`
-   (enrolment×syllabus — auto-filled from core syllabi, chosen only in
-   terminal grade; `progress()`), `StudentCohort` (temp/permanent group
-   *within one grade*), `CohortMembership`, `TopicResult` (student's mark on
-   one topic; `status` property feeds the in-app "knowledge map" feature —
-   not this file).
+   `can_view_marks`; still separately registered in admin for its
+   `raw_id_fields` lookup, but removed from `JET_SIDE_MENU_ITEMS`/the
+   dashboard so it is reached only via the Student inline or by URL).
+2. **Curriculum**: `AcademyClass` (renamed from `Grade` on 2026-09-13 —
+   same table shape, `db_table="academy_class"`; `level` int, `is_terminal`
+   bool — S3 is the only class where students choose subjects; still
+   colloquially "grade" in speech, never in code/schema), `Subject`
+   (`TopicInline` on `SubjectAdmin` shows its topics without leaving the
+   page), `Topic` (self-FK tree, `MAX_DEPTH=4`, materialized `path`/
+   `depth`, `clean()` enforces real ancestor not just any Topic id,
+   `_reparent_descendants()` rewrites path/depth for the whole subtree on
+   move; still separately registered in admin for its own change list and
+   the parent-picker autocomplete, but reached day-to-day via the Subject
+   inline — removed from `JET_SIDE_MENU_ITEMS`/the dashboard "Curriculum"
+   widget), `Syllabus` (one subject+class+year, `status`
+   draft/published/retired, `assessable_sections()`/`assessable_topics()`;
+   `SyllabusTopicInline` shows its topics), `SyllabusTopic` (syllabus×topic
+   join, `weight_pct` — the importance number grading.py uses; also
+   separately registered but removed from the menu/dashboard for the same
+   reason as Topic).
+3. **Enrolment & cohorts**: `Enrolment` (student×class×year, "one class at
+   a time" invariant enforced in app code not DB; FK field is
+   `academy_class`), `StudentSubject` (enrolment×syllabus — auto-filled
+   from core syllabi, chosen only in terminal class; `progress()`),
+   `StudentCohort` (temp/permanent group *within one class*),
+   `CohortMembership`, `TopicResult` (student's mark on one topic; `status`
+   property feeds the in-app "knowledge map" feature — not this file).
 4. **Teaching & timetable**: `TeachingAssignment` (teacher×syllabus, `role`),
    `TimetableSlot` (weekly pattern: syllabus/teacher/day/period — Lessons
    are generated FROM this, never edited directly), `Lesson` (one class on
@@ -204,10 +217,12 @@ unique_flags" → 0004-0006 added/populated/finalized `uuid`.
    `EvaluationPrompt` (reusable AI/rule marking instruction) →
    `PromptVersion` (immutable once active; reword = new version_no),
    `Question` (supports multi-part groups via `group`+`order_in_group`+
-   `group_stem`), `BinaryConfig`/`NumericConfig` (1:1 supertype/subtype on
-   `Question`, PK=FK — only one exists per question depending on
-   `question_type`; `TEXT` type questions have neither and are AI/teacher
-   marked via prompts).
+   `group_stem`). The old 1:1 `BinaryConfig`/`NumericConfig` supertype
+   tables are gone — a binary or numeric question's answer-key fields
+   (`expected_value`, `tolerance`, `true_label`...) are now
+   `QuestionAttribute` rows against `QuestionAttributeType`s filtered by
+   `applies_to`, see §5.8. `TEXT` type questions carry no attributes of
+   this kind and are AI/teacher marked via prompts.
 6. **Papers & attempts** (the online exam engine): `QuestionPaper` (stable
    identity only — holds no questions) → `PaperVersion` (the actual
    editable-while-draft/frozen-once-locked question set; `lock(user)`
@@ -215,7 +230,7 @@ unique_flags" → 0004-0006 added/populated/finalized `uuid`.
    makes version_no+1 carrying items across) → `PaperItem` (question in a
    slot/page/section, `max_mark`, optionally its own pinned
    `prompt_version`) → `PaperAssignment` (issues a locked version to a
-   grade or one cohort inside it: time_open/close, time_limit, attempts cap,
+   class or one cohort inside it: time_open/close, time_limit, attempts cap,
    `marking_method` highest/average/first/last, shuffle, is_practice) →
    `Attempt` (one sitting; `is_counted`/`counted_flag` recomputed from
    marking_method) → `Answer` (per paper-item response; boolean/numeric/text
@@ -225,7 +240,7 @@ unique_flags" → 0004-0006 added/populated/finalized `uuid`.
    method = rule|ai|teacher).
 7. **Handouts & submissions** (the coursework/homework workflow — the
    busiest part of the codebase behaviorally): `Handout` (a sheet given out;
-   `code` = "SUBJECT-GRADE-YEAR-Hnnn" auto-generated in `save()`/
+   `code` = "SUBJECT-CLASS-YEAR-Hnnn" auto-generated in `save()`/
    `_next_code()`; `kind` assignment/assessment/mock/quarterly;
    `is_exam` property = never shown in advance; weight resolution chain —
    `effective_weight` = weight_override → topic's importance → Standard
@@ -253,8 +268,8 @@ unique_flags" → 0004-0006 added/populated/finalized `uuid`.
    chunks; `complete()` turns the assembled part file into an Attachment,
    dedupe-checking SHA-256 first), `Notice` (school noticeboard item;
    `is_live` computed from published_from/until, not a flag).
-9. **Attendance**: `AttendanceSession` (one register: grade+date+period,
-   optional `syllabus` for a single-lesson register vs whole-day;
+9. **Attendance**: `AttendanceSession` (one register: academy_class+date+
+   period, optional `syllabus` for a single-lesson register vs whole-day;
    `summary` property = counts by status), `AttendanceRecord` (one
    student's mark: present/absent/late/excused/leave, minutes_late).
 10. **Ops & retention**: `RetentionPolicy` (one row per table name;
@@ -266,18 +281,22 @@ unique_flags" → 0004-0006 added/populated/finalized `uuid`.
 
 `TextFormat` (plain/html/markdown — used on every rich-text field's paired
 `_format` column), `QuestionType` (binary/numeric/text),
-`ToleranceType` (absolute/relative/geometric), `SyllabusStatus`,
+`ToleranceType` (absolute/relative/geometric — now unused as a model field;
+kept alive only as the source of `numeric_tolerance_type`'s
+`datatype_config` allow-list in `seed_attribute_types`), `SyllabusStatus`,
 `PromptStatus`, `LessonStatus`, `HandoutStatus`, `SubmissionState`,
 `TimerStatus`, `DayOfWeek` (Monday=0), `PaperPurpose` (quiz/assignment/exam/
 mock), `PaperStatus` (draft/locked/retired), `CohortPurpose`,
 `MarkingMethod`, `AttemptState`, `EvalMethod` (rule/ai/teacher),
-`NationalIdType` (cnic/b_form/passport), `HandoutKind`,
-`MarkSource` (auto/examiner/teacher), `TopicImportance` (INT: supporting=30,
-standard=60, core=100 — these numeric values ARE the weights grading.py
-uses when a syllabus doesn't set an explicit `weight_pct`),
+`HandoutKind`, `MarkSource` (auto/examiner/teacher), `TopicImportance` (INT:
+supporting=30, standard=60, core=100 — these numeric values ARE the weights
+grading.py uses when a syllabus doesn't set an explicit `weight_pct`),
 `NoticeCategory`, `AutogradeStatus`, `SubjectStatus` (studying/passed/
 not_taken — feeds Student.subject_history()), `AttendanceStatus`,
-`UploadState`.
+`UploadState`, `AttributeDatatype` (text/boolean/integer/decimal/date/
+datetime — app/attributes.py, see §5.8; `NationalIdType` is gone, replaced
+by a `StudentAttributeType` whose `datatype_config` is the
+`"cnic|b_form|passport"` allow-list).
 
 # 5. Core cross-cutting systems
 
@@ -297,29 +316,43 @@ Two independent layers:
   authenticated student because `view_student` had to be granted for a
   student to see their OWN row.
 
-Twelve roles (constants `access.ADMIN`, `ACADEMIC_ADMIN`, `IT_ADMIN`,
-`HEAD_OF_DEPARTMENT`, `TEACHING_STAFF`, `PAPER_SETTER`, `MARKING_REVIEWER`,
-`EXAM_OPERATIONS`, `NON_ACADEMIC_STAFF`, `STUDENT`, `GUARDIAN`, `GUEST`).
-`STAFF_ROLES` (all but Student/Guardian/Guest) are unrestricted by row
-scoping — `is_unrestricted(user)` is true for any of them or a superuser.
-One person may hold several roles (normal for a small academy).
-`scope_queryset` logic: Guest with no other role → only grade/subject/topic,
-else none. Student → own rows via `_scope_to_students`'s per-model-name
-lookup-path table (a model missing from that dict silently gets
-`queryset.none()` — a common bug source when adding a new model students
-should see; the dict is the single source of truth, in `_scope_to_students`).
-Guardian → same shape via `_ward_ids` (GuardianLink rows). Lesson is special-
-cased for both (only `status="approved"` visible — course content isn't
-released until Head approval). Notice is special-cased to unfiltered (board
-is scoped by grade in the view layer, not here).
+Six roles as of 2026-09-13 (constants `access.ADMINISTRATOR`, `TEACHER`,
+`EXAMINER`, `STUDENT`, `GUARDIAN`, `GUEST`) — consolidated from twelve
+(`Admin`, `Academic Admin`, `IT Administrator`, `Head of Department`,
+`Teaching Staff`, `Paper Setter`, `Marking Reviewer`, `Exam Operations`,
+`Non-academic Staff`, `Student`, `Guardian`, `Guest`). The merge:
+`Administrator` = the old Admin + Academic Admin + IT Administrator +
+Head of Department + Non-academic Staff, given `"all"` permissions in
+`seed_roles.ROLE_PERMISSIONS` (a strict superset of what any of the merged
+roles had); `Teacher` = old Teaching Staff + Paper Setter (classroom
+teaching AND the question bank/draft papers — no longer two roles for one
+person); `Examiner` = old Marking Reviewer + Exam Operations (marking
+review AND script scanning/upload). Student/Guardian/Guest are unchanged.
+`STAFF_ROLES` (`ADMINISTRATOR`, `TEACHER`, `EXAMINER`) are unrestricted by
+row scoping — `is_unrestricted(user)` is true for any of them or a
+superuser. One person may hold several roles (normal for a small academy),
+though the merge means that matters less now than it used to.
+`scope_queryset` logic: Guest with no other role → only academyclass/
+subject/topic (`GUEST_VISIBLE_MODELS`), else none. Student → own rows via
+`_scope_to_students`'s per-model-name lookup-path table (a model missing
+from that dict silently gets `queryset.none()` — a common bug source when
+adding a new model students should see; the dict is the single source of
+truth, in `_scope_to_students`). Guardian → same shape via `_ward_ids`
+(GuardianLink rows). Lesson is special-cased for both (only
+`status="approved"` visible — course content isn't released until an
+Administrator approves it). Notice is special-cased to unfiltered (board is
+scoped by class in the view layer, not here).
 `may_approve_papers(user)` / `may_approve_lessons(user)` gate the lock/
-approve actions — both currently keyed to the same three roles
-(`PAPER_APPROVAL_ROLES = LESSON_APPROVAL_ROLES = [ADMIN, ACADEMIC_ADMIN,
-HEAD_OF_DEPARTMENT]`).
-**Known limitation, stated in the docstring**: Head of Department's row
-scoping is NOT narrowed by department because there is no "who heads which
-subject" table — HoD currently sees every subject. Adding that needs a new
-model + migration.
+approve actions — both now keyed to `PAPER_APPROVAL_ROLES =
+LESSON_APPROVAL_ROLES = [ADMINISTRATOR]` only: composing (Teacher) and
+approving (Administrator) stay two different roles even after the merge —
+this was a deliberate design call during the consolidation, not an
+oversight, so a Teacher still cannot self-approve their own lesson or
+paper.
+**Known limitation, stated in the docstring**: department-level scoping was
+never implemented (there is no "who heads which subject" table), and is
+moot now that the role it would have narrowed (Head of Department) is
+folded into Administrator, which is unrestricted by design anyway.
 
 ## 5.2 Audit trail plumbing (app/audit.py + app/middleware.py + AuditModel.save())
 
@@ -335,9 +368,9 @@ AFTER `AuthenticationMiddleware`.
 
 `TeacherLandingMiddleware` (last in MIDDLEWARE) intercepts GET /admin/ (no
 `?home=1` override) for authenticated non-superusers whose roles don't
-intersect `DASHBOARD_ROLES = {ADMIN, ACADEMIC_ADMIN, IT_ADMIN,
-HEAD_OF_DEPARTMENT}`: Teaching Staff → `/admin/home/` (teacher_home_view),
-Student → `/admin/my-work/`, Marking Reviewer → `/admin/checking/`.
+intersect `DASHBOARD_ROLES = {ADMINISTRATOR}`: Teacher → `/admin/home/`
+(teacher_home_view), Student → `/admin/my-work/`, Examiner →
+`/admin/checking/`.
 
 ## 5.4 File storage (app/files.py)
 
@@ -408,6 +441,69 @@ field-notes shown behind the "?" on every changelist
 tests.py asserts every field named there actually exists on the model, so
 this cannot silently drift from models.py.
 
+## 5.8 Attribute-type/attribute pattern (app/attributes.py) — how optional fields are added now
+
+Modeled on OpenMRS's `location`/`location_attribute_type`/
+`location_attribute`. `app/attributes.py` (imports nothing from
+`models.py`, to avoid a circular import) defines: `AttributeDatatype`
+(closed TextChoices set: text/boolean/integer/decimal/date/datetime —
+narrower than OpenMRS's pluggable datatype classes, deliberately, since
+this codebase doesn't need that generality); `to_python`/`to_storage`
+(text ⇄ real value conversion); `validate_raw(datatype, raw,
+datatype_config=None)` (raises `ValidationError`; for TEXT with a
+non-empty `datatype_config`, the config is read as a `|`-separated
+choice allow-list — this is how a closed choice set like the old
+`national_id_type` is expressed, since there's no dedicated CHOICE
+datatype); abstract `BaseAttributeType(models.Model)` (fields: `name`,
+`short_name` [the stable lookup key — changing it orphans existing
+values], `description`, `datatype`, `datatype_config`, `min_occurs`,
+`max_occurs`, `sort_order`, `visible`; methods `python_value`/
+`storage_value`); abstract `BaseAttribute(models.Model)` (field:
+`value_reference` TextField; methods `get_value()`/`set_value(v)` that
+resolve through `self.attribute_type`; `clean()` calls `validate_raw`).
+
+Both base classes are plain `models.Model`, NOT `AuditModel` — concrete
+pairs in `models.py` use multiple inheritance to add the audit block:
+`class QuestionAttributeType(AuditModel, BaseAttributeType)`. Two pairs
+exist so far, both per-entity (OpenMRS-exact, not one shared generic
+pair, per an explicit design decision):
+
+- `QuestionAttributeType`/`QuestionAttribute` — replaces the old
+  `BinaryConfig`/`NumericConfig` tables. `QuestionAttributeType` adds
+  `applies_to` (nullable `QuestionType` choice; null = any type).
+  `QuestionAttribute` FKs `question`+`attribute_type`, unique together
+  (live rows). Seeded by `seed_attribute_types` with 12 types (4 binary:
+  `binary_expected_value`/`binary_true_label`/`binary_false_label`/
+  `binary_true_feedback`; 8 numeric: `numeric_expected_value`/
+  `numeric_tolerance_type`/`numeric_tolerance`/`numeric_partial_band`/
+  `numeric_partial_fraction`/`numeric_unit`/`numeric_unit_penalty`/
+  `numeric_significant_figures`).
+- `StudentAttributeType`/`StudentAttribute` — replaces
+  `Student.national_id_type`/`Student.guardian_contact_2`. No
+  entity-specific extra field on the type. Seeded with 2 types:
+  `national_id_type` (TEXT, `datatype_config="cnic|b_form|passport"`),
+  `guardian_contact_2` (TEXT).
+
+Both admin forms have a `TabularInline` for the attribute (
+`QuestionAttributeInline` on `QuestionAdmin`, `StudentAttributeInline` on
+`StudentAdmin`); both `<Entity>AttributeType` models get their own plain
+`AuditAdmin` registration so staff can add a new type without a
+migration. `app/management/commands/import_setup.py` sets Student
+attributes through a `set_student_attribute(student, short_name,
+raw_value)` helper (creates/updates/voids a `StudentAttribute` row)
+rather than direct field assignment — the student row must already be
+saved (has a pk) before this is called.
+
+**Adding a new optional/descriptive field to Question or Student from
+here on is a new attribute type (admin, or a `seed_attribute_types.py`
+entry), not a migration.** The same recipe is intended for other
+entities' descriptive fields (`AcademyClass`/`Subject`/`Topic.description`,
+`Handout`'s free-text fields) as later follow-ups — not done yet, so
+those are still plain columns as of this writing. Structural fields
+(FKs, workflow state, anything `access.py`/`grading.py` reads) are
+deliberately NOT candidates for this pattern — only descriptive/optional
+fields move.
+
 # 6. Uploads
 
 Two paths, same storage/dedup logic underneath: (a) small file → `POST
@@ -474,15 +570,25 @@ the row-scoping fix mentioned in §5.1), `changelist_view` injects
 `save_model` stamps changed_by/created_by. `PhotoAdmin(AuditAdmin)` is a
 second-level base for Student/Teacher (avatar thumbnail column + photo
 validation UI). Every model has its own registered `<Model>Admin` (list at
-grep `^class.*Admin` in app/admin.py — 40 registrations); inlines used
-heavily for parent/child pairs (SyllabusTopicInline on Syllabus,
-TopicResultInline on StudentSubject, PromptVersionInline on
-EvaluationPrompt, Binary/NumericConfigInline + AttachmentLinkInline on
-Question, PaperItemInline on PaperVersion, Lecture/LessonTopicInline on
-Lesson, HandoutLessonInline on Handout, CohortMembershipInline on
-StudentCohort, Answer/EvaluationInline on Attempt/Answer,
-AttendanceRecordInline on AttendanceSession, generic `AttachmentLinkInline`
-reused across most content models).
+grep `^class.*Admin` in app/admin.py — 44 registrations, unchanged by the
+2026-09-13 curriculum-widget reorg below since nothing was unregistered,
+only removed from menus); inlines used heavily for parent/child pairs
+(SyllabusTopicInline on Syllabus, TopicInline on Subject and
+GuardianLinkInline on Student — both added 2026-09-13 so a subject's topics
+and a student's guardians edit in place instead of needing their own
+changelist visit, TopicResultInline on StudentSubject, PromptVersionInline
+on EvaluationPrompt, QuestionAttributeInline + AttachmentLinkInline on
+Question, StudentAttributeInline on Student (see §5.8), PaperItemInline on
+PaperVersion, Lecture/LessonTopicInline on Lesson, HandoutLessonInline on
+Handout, CohortMembershipInline on StudentCohort, Answer/EvaluationInline
+on Attempt/Answer, AttendanceRecordInline on AttendanceSession, generic
+`AttachmentLinkInline` reused across most content models). Topic,
+SyllabusTopic and GuardianLink stay independently registered (an inline's
+`raw_id_fields`/`autocomplete_fields` lookup needs the target model's own
+`ModelAdmin` to exist) but were removed from `JET_SIDE_MENU_ITEMS` (lms/
+settings.py) and from the dashboard "Curriculum"/"People" `ModelList`
+widgets (app/dashboard.py) — reachable by URL and via the inline, not from
+the menu or the homepage cards.
 
 # 9. Custom admin pages (app/admin_views.py, wired in lms/urls.py)
 
@@ -496,17 +602,17 @@ uses them:
   rest of week + needs-attention, with `_decorate`/`_decorate_full` building
   the lesson-card view model, timer start/pause/stop posted via
   `_my_day_post`), `calendar_view` (/admin/calendar/, month grid),
-  `my_subjects_view` (/admin/my-subjects/, one row per subject×grade
+  `my_subjects_view` (/admin/my-subjects/, one row per subject×class
   taught, via `_syllabi_for`), `lesson_materials_view` (upload straight onto
   a lesson — the generic admin inline can only link an existing file),
   `assignments_view` (/admin/assignments/, one card per class), `browse_view`
-  (/admin/browse/, grade→subject→topic→lectures/assignments drill-down).
+  (/admin/browse/, class→subject→topic→lectures/assignments drill-down).
 - **Handouts**: `new_handout_view` (set a sheet for a lesson in one screen,
   `_set_sheet`/`_link_file`/`_detach_file` helpers), `handout_view`
   (/admin/handout/{id}/ — the sheet, print count, who's handed in),
   `handout_print_view` (cover sheet for photocopying),
   `handout_extend_view` (grant named students a later deadline).
-- **Examiner (Marking Reviewer role)**: `checking_browse_view`
+- **Examiner role**: `checking_browse_view`
   (/admin/checking/, class→subject→assignment drill-down),
   `checking_queue_view` (/admin/checking/waiting/, oldest-first flat queue),
   `checking_assignment_view` (one assignment, every hand-in + status via
@@ -518,7 +624,8 @@ uses them:
 - **Student**: `my_work_view` (/admin/my-work/ — what's open + hand-in
   form).
 - **Notices**: `notice_board_view` (student-facing board),
-  `post_notice_view` (teacher/HoD posting, gated by `_may_post_notices`).
+  `post_notice_view` (Teacher/Administrator posting, gated by
+  `_may_post_notices`).
 - **Ops/demo**: `demo_view` (/admin/demo/ — load/remove the fictional demo
   school via `demo_data.py`, `_plan`/`_counts` build the preview before
   committing).
@@ -531,8 +638,9 @@ model builders local to one screen; none are imported elsewhere except
 
 | command | purpose |
 |---|---|
-| seed_roles | create the 12 role Groups + their model permissions (run once per fresh DB) |
-| seed_curriculum | load the full Cambridge curriculum from seed_data.py: grades/subjects/topics/syllabi for a year (`--year`, `--dry-run`) |
+| seed_roles | create the 6 role Groups + their model permissions (run once per fresh DB) |
+| seed_attribute_types | create the initial QuestionAttributeType/StudentAttributeType rows (12 + 2) — see §5.8; idempotent on `short_name` |
+| seed_curriculum | load the full Cambridge curriculum from seed_data.py: classes/subjects/topics/syllabi for a year (`--year`, `--dry-run`) |
 | seed_demo | load/remove the fictional demo school |
 | seed_today | put one realistic lesson on today's date (so My Day isn't empty in dev) |
 | seed_test_users | one test account per role for manual browser testing |
@@ -549,16 +657,16 @@ model builders local to one screen; none are imported elsewhere except
 | role_audit | print what each role can actually see, for manual review |
 
 Windows ops wrapper: `setup_academy.bat` runs migrate → seed_roles →
-import_setup → seed_student_logins → generate_lessons → account_status in
-order, logs to setup_log.txt, is safe to re-run (idempotent by design of
-each command). `start_server.bat` starts the Docker MySQL container then
-`runserver` in the foreground.
+seed_attribute_types → import_setup → seed_student_logins →
+generate_lessons → account_status in order, logs to setup_log.txt, is safe
+to re-run (idempotent by design of each command). `start_server.bat`
+starts the Docker MySQL container then `runserver` in the foreground.
 
 # 11. Tests
 
 `app/tests.py` (2213 lines, ~30 TestCase classes, in-memory SQLite by
 default). Notable classes: `Fixture` (shared base building a minimal
-grade/subject/syllabus/enrolment set), `PaperVersioningTests`,
+class/subject/syllabus/enrolment set), `PaperVersioningTests`,
 `CountedAttemptTests`, `VoidingTests`, `ApiTests`, `SeedCurriculumTests`
 (asserts the real curriculum numbers — 618 topics etc, see README), `Audit*
 Tests` (block/api/admin), `AttachmentTests`, `AttendanceTests`, `RoleTests`,
@@ -569,7 +677,10 @@ top), `IncludeVoided*Tests`, `DemoData/DemoPageTests`, `PhotoRuleTests`,
 `StudentSubjectHistoryTests`/`StudentPageTests`,
 `AssessableTopicTests`/`CompletionTests`/`MarkingGridTests`/
 `KnowledgeMapDataTests` (grading.py + Handout.completion() coverage),
-`DemoMarkTests`.
+`DemoMarkTests`, `AttributeTests` (app/attributes.py: datatype round-trip
+for each `AttributeDatatype`, blank→None, the TEXT+`datatype_config`
+choice allow-list, the one-value-per-entity-per-type uniqueness
+constraint, `applies_to` filtering — see §5.8).
 
 `app/check_row_scoping.py` is a **standalone** security smoke test, run
 directly (`python -m app.check_row_scoping`), NOT via `manage.py test` — its
@@ -605,8 +716,10 @@ Run tests: `python manage.py test` (sqlite) or
   (empty list, no error) rather than failing loudly.
 - `entity_help.ENTITY_HELP` field names are tested against the live model —
   keep them in sync or `EntityHelpFieldTests` fails.
-- HoD's admin scope is intentionally NOT narrowed by department (no schema
-  support yet) — not a bug, documented in access.py's module docstring.
+- Department-level admin scoping was never implemented (no schema support)
+  and is now moot: the role it would have narrowed (Head of Department) is
+  folded into Administrator, which is unrestricted by design — documented
+  in access.py's module docstring.
 - `.env` holds real local secrets in this working tree; never print/commit
   its contents, and don't assume `.env.example`'s defaults are what's
   actually configured.
@@ -614,14 +727,45 @@ Run tests: `python manage.py test` (sqlite) or
   first-run-only credential; production must override
   `DJANGO_BOOTSTRAP_ADMIN_PASSWORD` or disable it — flag it if you ever see
   it still active in something that looks like a live deployment.
+- Optional/descriptive fields are attribute-type/attribute pairs
+  (app/attributes.py, §5.8), not new columns — this is the reference
+  pattern now, following OpenMRS's location/location_attribute_type/
+  location_attribute shape. Only `Question` and `Student` have been
+  converted; `AcademyClass`/`Subject`/`Topic`'s `description` fields and
+  `Handout`'s free-text fields are known follow-up candidates using the
+  exact same recipe, not yet done. Structural fields (FKs, workflow
+  state, anything `access.py`/`grading.py` reads) stay real columns —
+  don't attributize those.
+- `Grade` was renamed to `AcademyClass` on 2026-09-13 (model class, every
+  FK and attribute — `enrolment.grade` is now `enrolment.academy_class`,
+  etc — table `academy_class`, API resource `/api/academy-classes/`,
+  admin URL `/admin/app/academyclass/`). "Grade" survives only where it
+  means a mark/score (`Handout.counts_toward_grade`, `app/grading.py`,
+  `AutogradeJob`) — those are a different, colloquial sense of the word
+  and were deliberately left alone. If you see a bare `grade` identifier
+  anywhere else in this codebase going forward, it is a bug, not a
+  pre-existing pattern to match.
+- All migrations were squashed to a fresh `0001_initial` + `0002_
+  bootstrap_admin` on 2026-09-13, twice in the same day (no real
+  production data existed yet, by design): once after the attribute-type
+  refactor, again after the Grade→AcademyClass rename + role consolidation
+  + admin UI reorg landed together. Don't assume old migration
+  numbers/names from before that date mean anything; the dev database
+  must be dropped and recreated once, after which normal incremental
+  migrations resume.
 
 # 13. Related artifacts (already produced, don't regenerate blindly)
 
-- ERD (visual, field-level, all 46 tables): claude.ai Project doc
-  `claude/lms-schema-erd.md` (this session's own project) + repo file
-  `academy-lms-erd.drawio` at the repo root, described in the doc. Prefer
-  updating that drawio (regenerate via ast+mxGraph XML, per the doc's "How
-  it was built" section) over hand-editing if the schema changes
-  significantly, and update `claude/lms-schema-erd.md`'s stats/table list
-  too.
+- ERD (visual, field-level): claude.ai Project doc
+  `claude/lms-schema-erd.md` describes an `academy-lms-erd.drawio` meant
+  to live at the repo root — but as of 2026-09-13 that file is NOT
+  actually present in this repo (it seems to have only ever been
+  delivered as a chat attachment, never committed). The write-up text has
+  been kept current (attribute-type refactor, then the Grade→AcademyClass
+  rename + 6-role model + admin UI reorg), but the diagram itself has
+  never been regenerated to match — the "where's the file" gap and the
+  "diagram not regenerated" gap are both still open. If you (or Uzair)
+  need the actual diagram, it has to be built fresh against the current
+  `models.py`, not "updated" from a prior file, and should be saved into
+  the repo this time so this gap doesn't repeat.
 - This file + `.agents/instructions.md` are new as of 2026-09-13.

@@ -50,19 +50,19 @@ class Command(BaseCommand):
             f"Syllabi for {year}" + ("" if commit else "   — REPORT ONLY, nothing written")
         ))
 
-        # resolve grades and subjects up front, so a typo fails loudly
-        grades, subjects, plan = {}, {}, []
-        for grade_code, subject_codes in TARGET.items():
-            grade = models.Grade.objects.filter(short_name=grade_code).first()
-            if grade is None:
-                raise CommandError(f"No class called {grade_code!r}.")
-            grades[grade_code] = grade
+        # resolve academy_classes and subjects up front, so a typo fails loudly
+        academy_classes, subjects, plan = {}, {}, []
+        for academy_class_code, subject_codes in TARGET.items():
+            academy_class = models.AcademyClass.objects.filter(short_name=academy_class_code).first()
+            if academy_class is None:
+                raise CommandError(f"No class called {academy_class_code!r}.")
+            academy_classes[academy_class_code] = academy_class
             for sc in subject_codes:
                 subject = models.Subject.objects.filter(short_name=sc).first()
                 if subject is None:
                     raise CommandError(f"No subject called {sc!r} (is it voided?).")
                 subjects[sc] = subject
-                plan.append((grade, subject))
+                plan.append((academy_class, subject))
 
         # the exact set we intend to keep live
         keep_keys = {(g.pk, s.pk, year) for g, s in plan}
@@ -71,29 +71,29 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING("Keeping / creating"))
         created = kept = 0
         with transaction.atomic():
-            for grade, subject in plan:
+            for academy_class, subject in plan:
                 existing = models.Syllabus.all_objects.filter(
-                    subject=subject, grade=grade, academic_year=year
+                    subject=subject, academy_class=academy_class, academic_year=year
                 ).first()
                 if existing is None:
                     state = "create"
                     created += 1
                     if commit:
                         models.Syllabus.objects.create(
-                            subject=subject, grade=grade, academic_year=year,
-                            full_name=f"{subject.full_name} - {grade.short_name} ({year})",
+                            subject=subject, academy_class=academy_class, academic_year=year,
+                            full_name=f"{subject.full_name} - {academy_class.short_name} ({year})",
                         )
                 else:
                     state = "keep" + (" (unvoid)" if existing.voided else "")
                     kept += 1
                     if commit and existing.voided:
                         existing.unvoid()
-                self.stdout.write(f"  {grade.short_name:3} {subject.short_name:5} {state}")
+                self.stdout.write(f"  {academy_class.short_name:3} {subject.short_name:5} {state}")
 
             # void every other live syllabus, and its topic links
             surplus = [
-                s for s in models.Syllabus.objects.select_related("grade", "subject")
-                if (s.grade_id, s.subject_id, s.academic_year) not in keep_keys
+                s for s in models.Syllabus.objects.select_related("academy_class", "subject")
+                if (s.academy_class_id, s.subject_id, s.academic_year) not in keep_keys
             ]
             self.stdout.write("")
             self.stdout.write(self.style.MIGRATE_HEADING("Voiding all others"))
@@ -102,7 +102,7 @@ class Command(BaseCommand):
             voided_syl = voided_links = 0
             for s in surplus:
                 self.stdout.write(
-                    f"  {s.grade.short_name:3} {s.subject.short_name:5} {s.academic_year}  void"
+                    f"  {s.academy_class.short_name:3} {s.subject.short_name:5} {s.academic_year}  void"
                 )
                 if commit:
                     for link in models.SyllabusTopic.objects.filter(syllabus=s):

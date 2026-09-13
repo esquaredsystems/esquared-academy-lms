@@ -72,19 +72,19 @@ def _counts(year):
 
 
 def _plan(year):
-    """What the demo will look like, grade by grade."""
+    """What the demo will look like, class by class."""
     rows = []
-    for grade in models.Grade.objects.order_by("sort_order"):
-        students = [s for s in demo_data.STUDENTS if s["grade"] == grade.short_name]
-        syllabi = models.Syllabus.objects.filter(grade=grade, academic_year=year)
+    for academy_class in models.AcademyClass.objects.order_by("sort_order"):
+        students = [s for s in demo_data.STUDENTS if s["academy_class"] == academy_class.short_name]
+        syllabi = models.Syllabus.objects.filter(academy_class=academy_class, academic_year=year)
         core = syllabi.filter(is_core=True).count()
-        if grade.is_terminal:
+        if academy_class.is_terminal:
             spread = sorted({core + len(s.get("electives", [])) for s in students})
             subjects = f"{core} core + electives ({'–'.join(str(n) for n in (spread[0], spread[-1]))} total)"
         else:
             subjects = f"{core} core"
         rows.append({
-            "grade": f"{grade.short_name} — {grade.full_name}",
+            "academy_class": f"{academy_class.short_name} — {academy_class.full_name}",
             "students": len(students),
             "subjects": subjects,
         })
@@ -112,8 +112,7 @@ def _may_open_teaching_screens(user):
     return (
         user.is_superuser
         or access.has_role(
-            user, access.TEACHING_STAFF, access.HEAD_OF_DEPARTMENT,
-            access.ACADEMIC_ADMIN, access.ADMIN,
+            user, access.TEACHER, access.ADMINISTRATOR,
         )
     )
 
@@ -179,7 +178,7 @@ def _lessons_for(user, teacher, start, end):
     lessons = (
         models.Lesson.objects
         .filter(voided=False, date__gte=start, date__lte=end)
-        .select_related("syllabus", "syllabus__subject", "syllabus__grade",
+        .select_related("syllabus", "syllabus__subject", "syllabus__academy_class",
                         "teacher", "slot", "slot__teacher")
         .prefetch_related(
             "topics__topic", "attachments__attachment",
@@ -356,7 +355,7 @@ def _decorate(lesson):
             if not hl.voided and hl.handout_id and not hl.handout.voided
         ],
         "subject": lesson.syllabus.subject,
-        "grade": lesson.syllabus.grade,
+        "academy_class": lesson.syllabus.academy_class,
         "topics": topics,
         "planned": [t for t in topics if t.planned],
         "uncovered": [t for t in topics if t.planned and not t.covered],
@@ -472,11 +471,10 @@ def my_day_view(request, admin_site):
         # *is* their home. Showing a "Home" crumb that lands them back on
         # the same page is a link that does nothing.
         "is_home": (
-            access.TEACHING_STAFF in access.role_names(request.user)
+            access.TEACHER in access.role_names(request.user)
             and not request.user.is_superuser
             and not (access.role_names(request.user) & {
-                access.ADMIN, access.ACADEMIC_ADMIN,
-                access.IT_ADMIN, access.HEAD_OF_DEPARTMENT,
+                access.ADMINISTRATOR,
             })
         ),
         "lesson_list_url": reverse("admin:app_lesson_changelist"),
@@ -987,7 +985,7 @@ def my_work_view(request, admin_site):
     enrolments = (
         models.Enrolment.objects
         .filter(student=student, voided=False)
-        .select_related("grade") if student else models.Enrolment.objects.none()
+        .select_related("academy_class") if student else models.Enrolment.objects.none()
     )
     enrolment = enrolments.order_by("-academic_year").first()
 
@@ -1008,7 +1006,7 @@ def my_work_view(request, admin_site):
             allowed, why = False, "Your account is not linked to a student record."
         elif not (
             handout.is_assignment
-            and handout.syllabus.grade_id == enrolment.grade_id
+            and handout.syllabus.academy_class_id == enrolment.academy_class_id
             and handout.syllabus.academic_year == enrolment.academic_year
         ):
             allowed, why = False, "That handout is not one of yours."
@@ -1123,7 +1121,7 @@ def my_work_view(request, admin_site):
             .filter(
                 voided=False,
                 is_assignment=True,
-                syllabus__grade=enrolment.grade,
+                syllabus__academy_class=enrolment.academy_class,
                 syllabus__academic_year=enrolment.academic_year,
                 status=models.HandoutStatus.ACTIVE,
             )
@@ -1215,15 +1213,15 @@ def my_work_view(request, admin_site):
 # The notice board
 # ---------------------------------------------------------------------
 def _may_post_notices(user):
-    """Teachers and heads of department put things on the board."""
+    """Teachers and administrators put things on the board."""
     if user.is_superuser:
         return True
     return user.groups.filter(
-        name__in=["Teaching Staff", "Head of Department", "Academic Admin", "Admin"]
+        name__in=[access.TEACHER, access.ADMINISTRATOR]
     ).exists()
 
 
-def _notice_rows(grade=None, academic_year=None):
+def _notice_rows(academy_class=None, academic_year=None):
     """
     What is on the board, grouped by what it is.
 
@@ -1234,11 +1232,11 @@ def _notice_rows(grade=None, academic_year=None):
     qs = (
         models.Notice.objects
         .filter(voided=False)
-        .select_related("grade", "posted_by")
+        .select_related("academy_class", "posted_by")
         .prefetch_related("attachments__attachment")
     )
-    if grade is not None:
-        qs = qs.filter(Q(grade=grade) | Q(grade__isnull=True))
+    if academy_class is not None:
+        qs = qs.filter(Q(academy_class=academy_class) | Q(academy_class__isnull=True))
     if academic_year is not None:
         qs = qs.filter(Q(academic_year=academic_year) | Q(academic_year__isnull=True))
 
@@ -1274,7 +1272,7 @@ def notice_board_view(request, admin_site):
     enrolment = (
         models.Enrolment.objects
         .filter(student=student, voided=False)
-        .select_related("grade")
+        .select_related("academy_class")
         .order_by("-academic_year")
         .first()
         if student else None
@@ -1287,7 +1285,7 @@ def notice_board_view(request, admin_site):
             .filter(
                 voided=False,
                 is_assignment=True,
-                syllabus__grade=enrolment.grade,
+                syllabus__academy_class=enrolment.academy_class,
                 syllabus__academic_year=enrolment.academic_year,
                 status=models.HandoutStatus.ACTIVE,
             )
@@ -1314,7 +1312,7 @@ def notice_board_view(request, admin_site):
             })
 
     groups = _notice_rows(
-        grade=enrolment.grade if enrolment else None,
+        academy_class=enrolment.academy_class if enrolment else None,
         academic_year=enrolment.academic_year if enrolment else None,
     )
 
@@ -1356,7 +1354,7 @@ def post_notice_view(request, admin_site):
 
         title = (request.POST.get("title") or "").strip()
         category = request.POST.get("category") or models.NoticeCategory.GENERAL
-        grade_id = request.POST.get("grade") or None
+        academy_class_id = request.POST.get("academy_class") or None
         body = (request.POST.get("body") or "").strip()
         upload = request.FILES.get("file")
 
@@ -1374,7 +1372,7 @@ def post_notice_view(request, admin_site):
         notice = models.Notice.objects.create(
             title=title,
             category=category,
-            grade_id=int(grade_id) if grade_id else None,
+            academy_class_id=int(academy_class_id) if academy_class_id else None,
             academic_year=_current_year(),
             body=body,
             posted_by=request.user,
@@ -1401,14 +1399,14 @@ def post_notice_view(request, admin_site):
                 role="notice",
             )
 
-        where = notice.grade.short_name if notice.grade else "every class"
+        where = notice.academy_class.short_name if notice.academy_class else "every class"
         messages.success(request, f"Posted “{title}” to {where}.")
         return redirect(reverse("post-notice"))
 
     mine = (
         models.Notice.objects
         .filter(voided=False)
-        .select_related("grade", "posted_by")
+        .select_related("academy_class", "posted_by")
         .prefetch_related("attachments__attachment")
         .order_by("-date_posted")[:40]
     )
@@ -1429,7 +1427,7 @@ def post_notice_view(request, admin_site):
         **admin_site.each_context(request),
         "title": "Post a notice",
         "teacher": teacher,
-        "grades": models.Grade.objects.filter(voided=False).order_by("sort_order", "level"),
+        "academy_classes": models.AcademyClass.objects.filter(voided=False).order_by("sort_order", "level"),
         "categories": models.NoticeCategory.choices,
         "rows": rows,
     }
@@ -1736,7 +1734,7 @@ def _my_day_post(request):
 # ---------------------------------------------------------------------
 def my_subjects_view(request, admin_site):
     """
-    One row per subject-and-grade this teacher takes.
+    One row per subject-and-class this teacher takes.
 
     The counts that matter are lessons and handouts, and how much of it
     exists *ahead of today*. A week ahead is the standing requirement now;
@@ -1760,7 +1758,7 @@ def my_subjects_view(request, admin_site):
             | Q(teacher__isnull=True, slot__teacher__isnull=True)
         )
     lessons = lessons.select_related(
-        "syllabus", "syllabus__subject", "syllabus__grade"
+        "syllabus", "syllabus__subject", "syllabus__academy_class"
     )
 
     by_syllabus = {}
@@ -1803,7 +1801,7 @@ def my_subjects_view(request, admin_site):
             reverse("admin:app_handout_changelist"), row["syllabus"].pk
         )
         rows.append(row)
-    rows.sort(key=lambda r: (str(r["syllabus"].grade), str(r["syllabus"].subject)))
+    rows.sort(key=lambda r: (str(r["syllabus"].academy_class), str(r["syllabus"].subject)))
 
     context = {
         **admin_site.each_context(request),
@@ -1821,7 +1819,7 @@ def my_subjects_view(request, admin_site):
 # A teacher's home, and the two ways in from it
 # ---------------------------------------------------------------------
 def _syllabi_for(teacher):
-    """Every subject-and-grade this teacher takes, newest year first."""
+    """Every subject-and-class this teacher takes, newest year first."""
     lessons = models.Lesson.objects.filter(voided=False)
     if teacher is not None:
         from django.db.models import Q
@@ -1846,8 +1844,8 @@ def _syllabi_for(teacher):
     return (
         models.Syllabus.objects
         .filter(pk__in=ids, voided=False)
-        .select_related("subject", "grade")
-        .order_by("-academic_year", "grade__sort_order", "subject__short_name")
+        .select_related("subject", "academy_class")
+        .order_by("-academic_year", "academy_class__sort_order", "subject__short_name")
     )
 
 
@@ -1875,7 +1873,7 @@ def teacher_home_view(request, admin_site):
                                 today - timedelta(days=30), today)
         if not l.date_taught
     ])
-    grades = sorted({s.grade for s in syllabi}, key=lambda g: (g.sort_order, g.level))
+    academy_classes = sorted({s.academy_class for s in syllabi}, key=lambda g: (g.sort_order, g.level))
     open_handouts_qs = models.Handout.objects.filter(
         voided=False, status=models.HandoutStatus.ACTIVE, syllabus__in=syllabi,
     )
@@ -1889,7 +1887,7 @@ def teacher_home_view(request, admin_site):
         handout__syllabus__in=syllabi,
     ).count()
     students = models.Enrolment.objects.filter(
-        voided=False, grade__in=grades,
+        voided=False, academy_class__in=academy_classes,
         academic_year=max([s.academic_year for s in syllabi], default=today.year),
     ).count()
 
@@ -1902,7 +1900,7 @@ def teacher_home_view(request, admin_site):
         "lessons_week": lessons_week,
         "unlogged": unlogged,
         "syllabi_count": len(syllabi),
-        "grades": grades,
+        "academy_classes": academy_classes,
         "students": students,
         "open_handouts": open_handouts,
         "outstanding_work": outstanding_work,
@@ -1954,7 +1952,7 @@ def calendar_view(request, admin_site):
                             reverse("my-day"), (l.date - today).days, l.pk
                         ),
                         "subject": l.syllabus.subject,
-                        "grade": l.syllabus.grade,
+                        "academy_class": l.syllabus.academy_class,
                     }
                     for l in by_day.get(day, [])
                 ],
@@ -1979,10 +1977,10 @@ def calendar_view(request, admin_site):
 
 def browse_view(request, admin_site):
     """
-    Grades, then subjects, then topics, then what hangs off each topic.
+    Classes, then subjects, then topics, then what hangs off each topic.
 
     One page that narrows as you click, rather than five list screens with
-    filters. `grade`, `syllabus` and `topic` in the querystring say how far
+    filters. `academy_class`, `syllabus` and `topic` in the querystring say how far
     down the reader has gone.
     """
     if not _may_open_teaching_screens(request.user):
@@ -1991,36 +1989,36 @@ def browse_view(request, admin_site):
     teacher = _teacher_for(request.user)
     syllabi = list(_syllabi_for(teacher))
 
-    grade_id = request.GET.get("grade")
+    academy_class_id = request.GET.get("academy_class")
     syllabus_id = request.GET.get("syllabus")
     topic_id = request.GET.get("topic")
 
-    grades, seen = [], set()
+    academy_classes, seen = [], set()
     for syllabus in syllabi:
-        if syllabus.grade_id in seen:
+        if syllabus.academy_class_id in seen:
             continue
-        seen.add(syllabus.grade_id)
-        grades.append({
-            "grade": syllabus.grade,
-            "subjects": len([s for s in syllabi if s.grade_id == syllabus.grade_id]),
+        seen.add(syllabus.academy_class_id)
+        academy_classes.append({
+            "academy_class": syllabus.academy_class,
+            "subjects": len([s for s in syllabi if s.academy_class_id == syllabus.academy_class_id]),
             "students": models.Enrolment.objects.filter(
-                grade=syllabus.grade, academic_year=syllabus.academic_year,
+                academy_class=syllabus.academy_class, academic_year=syllabus.academic_year,
                 voided=False,
             ).count(),
         })
 
-    grade = syllabus = topic = None
+    academy_class = syllabus = topic = None
     subjects, topics, lessons, handouts, children = [], [], [], [], []
 
-    if grade_id:
-        grade = models.Grade.objects.filter(pk=grade_id).first()
-        subjects = [s for s in syllabi if str(s.grade_id) == str(grade_id)]
+    if academy_class_id:
+        academy_class = models.AcademyClass.objects.filter(pk=academy_class_id).first()
+        subjects = [s for s in syllabi if str(s.academy_class_id) == str(academy_class_id)]
 
     if syllabus_id:
         syllabus = models.Syllabus.objects.filter(pk=syllabus_id).first()
         if syllabus:
-            grade = syllabus.grade
-            subjects = [s for s in syllabi if s.grade_id == syllabus.grade_id]
+            academy_class = syllabus.academy_class
+            subjects = [s for s in syllabi if s.academy_class_id == syllabus.academy_class_id]
             topics = list(
                 models.Topic.objects
                 .filter(subject=syllabus.subject, voided=False, parent__isnull=True)
@@ -2056,8 +2054,8 @@ def browse_view(request, admin_site):
         **admin_site.each_context(request),
         "title": "All lessons",
         "teacher": teacher,
-        "grades": grades,
-        "grade": grade,
+        "academy_classes": academy_classes,
+        "academy_class": academy_class,
         "subjects": subjects,
         "syllabus": syllabus,
         "topics": topics,
@@ -2083,7 +2081,7 @@ def new_handout_view(request, lesson_id, admin_site):
 
     The admin's own Add form asks for a syllabus by id, a topic by id, and
     explains that the code appears after saving — which is a database form,
-    not a way to set homework. Coming from the lesson, the subject, grade
+    not a way to set homework. Coming from the lesson, the subject, class
     and year are already known, so all that is left is a title, a file, and
     when it is due.
     """
@@ -2370,8 +2368,7 @@ def _may_approve(user):
     return (
         user.is_superuser
         or access.has_role(
-            user, access.TEACHING_STAFF, access.HEAD_OF_DEPARTMENT,
-            access.ACADEMIC_ADMIN, access.ADMIN,
+            user, access.TEACHER, access.ADMINISTRATOR,
         )
     )
 
@@ -2438,9 +2435,9 @@ def approvals_view(request, admin_site):
 
     teacher = _teacher_for(request.user)
     # An owner or admin with no Teacher record approves across the school;
-    # a class teacher only their own subjects and grades.
+    # a class teacher only their own subjects and academy_classes.
     wide = teacher is None or access.has_role(
-        request.user, access.HEAD_OF_DEPARTMENT, access.ACADEMIC_ADMIN, access.ADMIN,
+        request.user, access.ADMINISTRATOR,
     ) or request.user.is_superuser
     syllabus_ids = None if wide else set(
         _syllabi_for(teacher).values_list("pk", flat=True)
@@ -2490,10 +2487,10 @@ def approvals_view(request, admin_site):
     waiting = (
         models.Submission.objects
         .filter(voided=False, state=models.SubmissionState.MARKED)
-        .select_related("handout", "handout__syllabus", "handout__syllabus__grade",
+        .select_related("handout", "handout__syllabus", "handout__syllabus__academy_class",
                         "handout__syllabus__subject", "enrolment", "enrolment__student",
                         "marked_by")
-        .order_by("handout__syllabus__grade__sort_order",
+        .order_by("handout__syllabus__academy_class__sort_order",
                   "handout__syllabus__subject__short_name", "date_marked")
     )
     if syllabus_ids is not None:
@@ -2550,8 +2547,7 @@ def _may_check(user):
     return (
         user.is_superuser
         or access.has_role(
-            user, access.MARKING_REVIEWER, access.ACADEMIC_ADMIN,
-            access.ADMIN, access.HEAD_OF_DEPARTMENT,
+            user, access.EXAMINER, access.ADMINISTRATOR,
         )
     )
 
@@ -2596,8 +2592,8 @@ def checking_browse_view(request, admin_site):
         models.Handout.objects
         .filter(voided=False, is_assignment=True)
         .exclude(status=models.HandoutStatus.DRAFT)
-        .select_related("syllabus", "syllabus__grade", "syllabus__subject")
-        .order_by("syllabus__grade__sort_order", "syllabus__grade__level",
+        .select_related("syllabus", "syllabus__academy_class", "syllabus__subject")
+        .order_by("syllabus__academy_class__sort_order", "syllabus__academy_class__level",
                   "syllabus__subject__sort_order", "syllabus__subject__short_name",
                   "-date_created")
     )
@@ -2621,20 +2617,20 @@ def checking_browse_view(request, admin_site):
         else:
             bucket["checked"] += 1        # checked (awaiting approval or released)
 
-    # group grade -> subject -> [assignments]
+    # group class -> subject -> [assignments]
     classes = []
-    grade_index = {}
+    academy_class_index = {}
     for handout in handouts:
-        grade = handout.syllabus.grade
+        academy_class = handout.syllabus.academy_class
         subject = handout.syllabus.subject
         c = counts.get(handout.pk, {"waiting": 0, "checked": 0, "redo": 0, "handed_in": 0})
 
-        gkey = grade.pk
-        if gkey not in grade_index:
-            grade_index[gkey] = {"grade": grade, "waiting": 0, "subjects": {},
+        gkey = academy_class.pk
+        if gkey not in academy_class_index:
+            academy_class_index[gkey] = {"academy_class": academy_class, "waiting": 0, "subjects": {},
                                  "sub_order": []}
-            classes.append(grade_index[gkey])
-        gentry = grade_index[gkey]
+            classes.append(academy_class_index[gkey])
+        gentry = academy_class_index[gkey]
         gentry["waiting"] += c["waiting"]
 
         skey = subject.pk
@@ -2741,7 +2737,7 @@ def checking_queue_view(request, admin_site):
                                         models.SubmissionState.GRADING,
                                         models.SubmissionState.SENT_BACK])
         .select_related("handout", "handout__syllabus", "handout__syllabus__subject",
-                        "handout__syllabus__grade", "enrolment", "enrolment__student")
+                        "handout__syllabus__academy_class", "enrolment", "enrolment__student")
         .order_by("time_submitted")
     )
     recent = (

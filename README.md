@@ -10,6 +10,7 @@ cp .env.example .env          # then fill in the MySQL credentials
 mysql -e "CREATE DATABASE esquared_lms CHARACTER SET utf8mb4"   # or: docker compose up -d db
 python manage.py migrate      # also creates the admin / admin superuser
 python manage.py seed_roles   # the six roles
+python manage.py seed_attribute_types   # the optional-field/answer-key attribute types
 python manage.py seed_curriculum
 python manage.py runserver
 ```
@@ -83,10 +84,11 @@ venv\Scripts\python.exe manage.py runserver
 ```
 
 **After the code changes: `setup_academy.bat`.** Double-click it. It runs,
-in order: database migrations, the twelve roles, the import of staff,
-students, subjects and the timetable, student logins, this fortnight's
-lessons, and an account report — then asks you to set the teacher's
-password. Everything in it is safe to run again: each step checks what is
+in order: database migrations, the six roles, the attribute types
+(the answer-key fields on a question, and a student's optional fields —
+see "Attribute types" below), the import of staff, students, subjects and
+the timetable, student logins, this fortnight's lessons, and an account
+report — then asks you to set the teacher's password. Everything in it is safe to run again: each step checks what is
 already there and updates rather than duplicating. It writes
 `setup_log.txt` beside itself, so the result survives the window closing.
 Run it when you have just pulled new code, rebuilt the database, or
@@ -105,7 +107,7 @@ venv\Scripts\python.exe manage.py account_status --pending
 venv\Scripts\python.exe manage.py account_status --role Student
 
 # create an account that doesn't exist yet, with a role, password in one go
-venv\Scripts\python.exe manage.py reset_login someone --set --create --role "Teaching Staff"
+venv\Scripts\python.exe manage.py reset_login someone --set --create --role "Teacher"
 ```
 
 Teachers sign in with a name (`uxair.ahm`, `samyanconsole`, `sid.marium`,
@@ -151,7 +153,7 @@ by unvoiding them in the admin.
   `account_status` to see what does.
 - *A password is refused even though you just set it* — the account has
   no role, so the admin login refuses it. Give it one:
-  `reset_login <name> --set --role "Teaching Staff"`.
+  `reset_login <name> --set --role "Teacher"`.
 - *A yellow Django error page* — read the black PowerShell window; the
   real error is printed there, and the last few lines are the part that
   matters.
@@ -169,7 +171,7 @@ python manage.py seed_curriculum --year 2027
 python manage.py seed_curriculum --dry-run
 ```
 
-Loads the Cambridge curriculum as taught in Pakistan: five grades (E1, E2 =
+Loads the Cambridge curriculum as taught in Pakistan: five classes (E1, E2 =
 Lower Secondary stages 7–8; S1–S3 = the O Level programme, S3 terminal), 18
 subjects, 618 topics and 48 syllabi for the year — 348 syllabus/topic links.
 
@@ -212,6 +214,36 @@ why:
 
 Physics also numbers a third level (1.5.1, 4.5.1 …). Only the second level is
 seeded, matching every other subject.
+
+## Attribute types
+
+```bash
+python manage.py seed_attribute_types
+python manage.py seed_attribute_types --dry-run
+```
+
+Two entities carry optional fields as attributes rather than columns, on the
+model OpenMRS uses for `location`/`location_attribute_type`/
+`location_attribute`: `Question` (the true/false and numeric answer-key
+fields that used to be the separate `BinaryConfig`/`NumericConfig` tables)
+and `Student` (national ID type, second guardian contact). Each has an
+`<Entity>AttributeType` table naming the property and its datatype
+(text, yes/no, whole number, decimal, date, or date+time — a closed set,
+narrower than OpenMRS's pluggable datatype classes) and an `<Entity>Attribute`
+table holding one value per entity per type, stored as text and resolved to
+a real Python value through the type's datatype (`app/attributes.py`).
+
+`seed_attribute_types` creates the initial types — the ones a fresh install
+needs to behave like the old fixed-column schema. It is idempotent, matched
+on each type's `short_name`, so editing a label or a `datatype_config` in
+`app/management/commands/seed_attribute_types.py` and re-running it updates
+the existing row rather than duplicating it.
+
+Adding a new optional field to Question or Student from here on is a new
+attribute type — a row added through the admin (Question attribute types /
+Student attribute types) or a new entry in that command — not a migration.
+The same recipe applies to any other entity's descriptive fields; Question
+and Student are the two done so far.
 
 ## Files and attachments
 
@@ -260,14 +292,14 @@ In production the web server (or object storage) serves `MEDIA_ROOT`;
 
 ## Attendance
 
-`AttendanceSession` is one register: a grade, a date, a period. Leave
+`AttendanceSession` is one register: a class, a date, a period. Leave
 `syllabus` empty for a whole-day register or set it for a single lesson —
 both can exist for the same day. `AttendanceRecord` is one student's mark:
 present, absent, late, excused or leave, with optional minutes late and a
 note.
 
 `POST /api/attendance-sessions/{id}/mark/` marks a whole register in one
-call: everyone in the grade defaults to present and the request carries only
+call: everyone in the class defaults to present and the request carries only
 the exceptions. Re-marking updates rather than duplicating.
 
 ## Roles
@@ -277,12 +309,12 @@ work in the admin natively and in the API through `app.access.RolePermission`:
 
 | Role | Reach |
 |---|---|
-| Admin | Everything. |
-| Teaching Staff | Curriculum, questions, papers, marking, registers, attachments, and student profiles. |
-| Non-academic Staff | Attendance, plus read access to the student, grade and cohort lists it needs. |
+| Administrator | Everything: permissions, passwords, academic authority, accounts and office administration. |
+| Teacher | Curriculum, the question bank, draft papers, marking, registers, attachments, and student profiles. |
+| Examiner | Confirms or overrides marks, and scans and uploads exam scripts. |
 | Student | Read the catalogue; read and write their own attempts and answers. |
 | Guardian | Read-only, and only for the students linked to them by `GuardianLink`. |
-| Guest | Read-only list of grades, subjects and topics. Nothing else. |
+| Guest | Read-only list of classes, subjects and topics. Nothing else. |
 
 Permissions decide which *tables* a role may touch; they cannot express "their
 own" or "their ward's". That second question is answered by
@@ -368,6 +400,6 @@ URL lines and this settings block.
 | `/api/redoc/`   | ReDoc                             |
 | `/api/schema/`  | OpenAPI 3 schema (YAML)           |
 
-The data model follows the published ERD: grades are classes, question
-papers are versioned and immutable once locked, and every row is audited
-and soft-deleted rather than destroyed.
+The data model follows the published ERD: question papers are versioned
+and immutable once locked, and every row is audited and soft-deleted
+rather than destroyed.

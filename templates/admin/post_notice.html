@@ -59,10 +59,10 @@
       </select>
     </div>
     <div class="fld">
-      <label for="grade">Class</label>
-      <select id="grade" name="grade">
+      <label for="academy_class">Class</label>
+      <select id="academy_class" name="academy_class">
         <option value="">All classes</option>
-        {% for g in grades %}<option value="{{ g.pk }}">{{ g }}</option>{% endfor %}
+        {% for g in academy_classes %}<option value="{{ g.pk }}">{{ g }}</option>{% endfor %}
       </select>
     </div>
   </div>
@@ -96,7 +96,7 @@
           {% else %}<span class="pill off">Not showing</span>{% endif %}
         </td>
         <td>{{ r.notice.get_category_display }}</td>
-        <td>{% if r.notice.grade %}{{ r.notice.grade }}{% else %}All{% endif %}</td>
+        <td>{% if r.notice.academy_class %}{{ r.notice.academy_class }}{% else %}All{% endif %}</td>
         <td>{{ r.notice.date_posted|date:"j M Y" }}</td>
         <td>
           {% for f in r.files %}

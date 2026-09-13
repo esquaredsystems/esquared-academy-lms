@@ -1,5 +1,5 @@
 """
-Seed the curriculum: grades, subjects, topics and the year's syllabi.
+Seed the curriculum: academy_classes, subjects, topics and the year's syllabi.
 
     python manage.py seed_curriculum                # current calendar year
     python manage.py seed_curriculum --year 2027
@@ -24,7 +24,7 @@ from app import models, seed_data
 
 
 class Command(BaseCommand):
-    help = "Seed Cambridge grades, subjects, topics and syllabi for an academic year."
+    help = "Seed Cambridge academy_classes, subjects, topics and syllabi for an academic year."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -45,7 +45,7 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         user = self._resolve_user(options["created_by"])
 
-        self.counts = {k: [0, 0] for k in ("grade", "subject", "topic", "syllabus", "syllabus_topic")}
+        self.counts = {k: [0, 0] for k in ("academy_class", "subject", "topic", "syllabus", "syllabus_topic")}
 
         try:
             with transaction.atomic():
@@ -90,10 +90,10 @@ class Command(BaseCommand):
 
     # -- the seed ------------------------------------------------------
     def _seed(self, user, year):
-        grades = {}
-        for order, row in enumerate(seed_data.GRADES, start=1):
-            grades[row["short_name"]] = self._upsert(
-                models.Grade, "grade",
+        academy_classes = {}
+        for order, row in enumerate(seed_data.ACADEMY_CLASSES, start=1):
+            academy_classes[row["short_name"]] = self._upsert(
+                models.AcademyClass, "academy_class",
                 {
                     "full_name": row["full_name"],
                     "level": row["level"],
@@ -132,22 +132,22 @@ class Command(BaseCommand):
                 user, topics, parent=None,
             )
 
-        # One syllabus per subject per grade per year, carrying that stage's
+        # One syllabus per subject per academy_class per year, carrying that stage's
         # topics in teaching order.
-        for grade_code, entries in seed_data.CURRICULUM.items():
-            grade = grades[grade_code]
+        for academy_class_code, entries in seed_data.CURRICULUM.items():
+            academy_class = academy_classes[academy_class_code]
             for subject_code, stage, is_core in entries:
                 subject = subjects[subject_code]
                 syllabus = self._upsert(
                     models.Syllabus, "syllabus",
                     {
-                        "full_name": f"{subject.full_name} — {grade.full_name} ({year})",
+                        "full_name": f"{subject.full_name} — {academy_class.full_name} ({year})",
                         "is_core": is_core,
                         "status": models.SyllabusStatus.PUBLISHED,
                         "date_published": models.timezone.now(),
                         "created_by": user,
                     },
-                    subject=subject, grade=grade, academic_year=year,
+                    subject=subject, academy_class=academy_class, academic_year=year,
                 )
 
                 entry = seed_data.TOPICS.get((subject_code, stage))
@@ -196,7 +196,7 @@ class Command(BaseCommand):
             self.stdout.write(f"  {kind:16} {verb} {created:4}   updated {updated:4}")
 
         empty = [
-            f"{s.subject.short_name} {s.grade.short_name}"
+            f"{s.subject.short_name} {s.academy_class.short_name}"
             for s in models.Syllabus.objects.filter(academic_year=year)
             if not s.topics.exists()
         ]

@@ -67,7 +67,7 @@
   <h1>My work</h1>
   <div class="sub">
     {% if student %}{{ student.full_name }} · {{ student.admission_no }}
-      {% if enrolment %} · {{ enrolment.grade }}{% endif %}
+      {% if enrolment %} · {{ enrolment.academy_class }}{% endif %}
     {% endif %}
   </div>
 </div>

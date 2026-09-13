@@ -27,27 +27,27 @@ ENTITY_HELP = {
         "context": "A person may exist without an account. Students only need one if they sit papers online; guardians only if they check their child's records.",
         "fields": [
             ("username", "What they sign in with. Case-insensitively unique among live accounts."),
-            ("groups", "Their roles. Admin, Teaching Staff, Non-academic Staff, Student, Guardian or Guest — this is what decides what they can reach."),
+            ("groups", "Their roles. Administrator, Teacher, Examiner, Student, Guardian or Guest — this is what decides what they can reach."),
             ("is_staff", "May reach /admin/ at all. Every account here carries it, students included — the whole interface lives under /admin/ and Django's login refuses anyone without it. It is a door key, not a rank: what holds a student to their own rows is the Student role's narrow permissions plus the row scoping in app/access.py."),
             ("is_active", "Django's login switch. Turning it off blocks sign-in immediately."),
             ("suspended", "The school's own state, separate from is_active: on the roll but stood down."),
             ("id_number", "External identifier for imports and reports. Optional, unique when present."),
         ],
     },
-    "grade": {
-        "summary": "A grade, which here is also the class.",
-        "role": "Students enrol into a grade for a year; syllabi, cohorts, papers and registers all hang off it.",
-        "context": "E1 and E2 are Lower Secondary (Cambridge stages 7–8). S1, S2 and S3 run the O Level programme. S3 is the terminal grade — the only one where students take different subjects.",
+    "academyclass": {
+        "summary": "A class.",
+        "role": "Students enrol into a class for a year; syllabi, cohorts, papers and registers all hang off it.",
+        "context": "E1 and E2 are Lower Secondary (Cambridge stages 7–8). S1, S2 and S3 run the O Level programme. S3 is the terminal class — the only one where students take different subjects.",
         "fields": [
-            ("level", "The Cambridge stage number: 7 and 8 for E1/E2, 9 to 11 for S1–S3. Unique, and what the grades sort by."),
+            ("level", "The Cambridge stage number: 7 and 8 for E1/E2, 9 to 11 for S1–S3. Unique, and what the classes sort by."),
             ("short_name", "E1, S3 — what staff type and what appears in lists."),
-            ("is_terminal", "Marks the final grade, where subjects differ per student. Only S3 has it."),
+            ("is_terminal", "Marks the final class, where subjects differ per student. Only S3 has it."),
             ("capacity", "Places in the class. Optional, and not enforced — it is there for planning."),
-            ("visible", "Hides the grade from pickers without deleting it. Not the same as voiding."),
+            ("visible", "Hides the class from pickers without deleting it. Not the same as voiding."),
         ],
     },
     "student": {
-        "summary": "A student, independent of the grade they currently sit in.",
+        "summary": "A student, independent of the class they currently sit in.",
         "role": "The person record. Their placement each year is an Enrolment, so history survives when they move up.",
         "context": "Admission number is the identifier staff actually use. Guardian name and contact are the details on the record; a guardian's *access* is a separate Guardian link.",
         "fields": [
@@ -58,21 +58,42 @@ ENTITY_HELP = {
             ("email", "A guardian's address for a younger student, their own later. Not unique — siblings share one."),
             ("mobile", "Mobile number. Needed for a Cambridge entry."),
             ("address", "Residential address, as it should appear on an exam entry."),
-            ("national_id", "CNIC, B-Form or passport number, exactly as printed. Optional at admission, required before an exam entry."),
-            ("national_id_type", "Which document the number came from. Not the same as id_number, which is the external identifier used for imports."),
+            ("national_id", "CNIC, B-Form or passport number, exactly as printed. Optional at admission, required before an exam entry. Which document it is, and any second guardian contact, are recorded as attributes below rather than columns here."),
             ("guardian_name", "Contact detail only. It grants nobody any access."),
             ("guardian_contact", "The number the office rings. Also just a detail."),
-            ("guardian_contact_2", "A second guardian number. Cambridge asks for two for candidates under 18."),
             ("date_of_birth", "Used for reports and age checks; optional."),
             ("photo", "Their portrait. Square — the width must equal the height — and under 100 KB. Stored with the other pictures and shown as the avatar in lists."),
         ],
     },
+    "studentattributetype": {
+        "summary": "One typed optional property a student can carry, beyond the core columns.",
+        "role": "Replaces fields like national_id_type and guardian_contact_2 that varied by document type or school policy: a new one is a data row, not a migration.",
+        "context": "Set up once here, then filled in per student on the student's own change form.",
+        "fields": [
+            ("short_name", "The stable key code looks this up by. Set once — changing it orphans values stored under the old key."),
+            ("datatype", "How the stored text is interpreted: text, yes/no, whole number, decimal, date or date+time."),
+            ("datatype_config", "Datatype-specific configuration. For text, a '|'-separated list of allowed values acts as a closed choice set — this is how national_id_type's cnic/b_form/passport options are expressed."),
+            ("min_occurs", "0 means optional. Not enforced by a database constraint."),
+            ("max_occurs", "1 means single-valued, the normal case."),
+            ("visible", "Hides the type from pickers without deleting it."),
+        ],
+    },
+    "studentattribute": {
+        "summary": "One student's value for one StudentAttributeType.",
+        "role": "The optional-field data itself — what used to live in national_id_type/guardian_contact_2 columns.",
+        "context": "The value is always stored as text (value_reference) and resolved to a real Python value through its attribute type's datatype.",
+        "fields": [
+            ("student", "The student this value belongs to."),
+            ("attribute_type", "Which property this is — and therefore how value_reference is interpreted."),
+            ("value_reference", "The value, as text. Read it through get_value() rather than directly."),
+        ],
+    },
     "timetableslot": {
-        "summary": "One line of the weekly timetable: a subject, a grade, a day and a period.",
+        "summary": "One line of the weekly timetable: a subject, a class, a day and a period.",
         "role": "The pattern lessons are created from. It is a template, not a record of what happened.",
         "context": "Set once and changed rarely. A teacher swapping days edits that day's lesson, not this slot, so the weeks already taught stay true. Breaks are not modelled - only periods that are lessons appear here.",
         "fields": [
-            ("syllabus", "The subject, grade and year this slot teaches."),
+            ("syllabus", "The subject, class and year this slot teaches."),
             ("teacher", "Who normally teaches it. A lesson may name someone else."),
             ("period", "The period label, the same one registers use."),
         ],
@@ -80,7 +101,7 @@ ENTITY_HELP = {
     "lesson": {
         "summary": "One class on one date - the row everything about that class hangs off.",
         "role": "Lecture material attaches to it, topics are planned and ticked off on it, and it is the unit the head reviews.",
-        "context": "Drafted by the teacher, submitted, then approved by a Head of Department. Nothing reaches students until it is approved. An empty 'date taught' means the lesson was never written up, which is what the compliance view looks for.",
+        "context": "Drafted by the teacher, submitted, then approved by an Administrator. Nothing reaches students until it is approved. An empty 'date taught' means the lesson was never written up, which is what the compliance view looks for.",
         "fields": [
             ("slot", "The weekly slot this came from. Empty for a one-off lesson."),
             ("plan", "What will be taught. Prepared in advance; this is what the head reviews."),
@@ -110,12 +131,12 @@ ENTITY_HELP = {
         ],
     },
     "enrolment": {
-        "summary": "Places one student in one grade for one academic year.",
+        "summary": "Places one student in one class for one academic year.",
         "role": "The row nearly everything year-scoped hangs off: subject choices, cohort membership, attendance.",
         "context": "A student can hold only one live enrolment per year. If one is wrong, void it and create the correction — the voided row keeps the audit trail and does not block the new one.",
         "fields": [
             ("academic_year", "A plain year number, 2026. Together with the student it is the uniqueness rule."),
-            ("grade", "Which class they are in that year. Change of grade mid-year means voiding this and creating another."),
+            ("academy_class", "Which class they are in that year. Change of class mid-year means voiding this and creating another."),
             ("started_on", "When the placement began; defaults to today."),
             ("ended_on", "Set when a student leaves mid-year. Empty means still enrolled."),
             ("status", "Free text for the office: active, transferred, withdrawn."),
@@ -137,7 +158,7 @@ ENTITY_HELP = {
     # -- curriculum ----------------------------------------------------
     "subject": {
         "summary": "A subject in the permanent catalogue.",
-        "role": "Owns its topics; a syllabus offers it to a grade in a year.",
+        "role": "Owns its topics; a syllabus offers it to a class in a year.",
         "context": "The catalogue is permanent — a subject not taught this year stays here. Its id number is the Cambridge syllabus code (4024, 5054, 2058 and so on).",
         "fields": [
             ("short_name", "ENG, PHY, AMATH. Unique, and what appears in compact lists."),
@@ -162,14 +183,14 @@ ENTITY_HELP = {
         ],
     },
     "syllabus": {
-        "summary": "One subject, taught to one grade, in one academic year.",
+        "summary": "One subject, taught to one class, in one academic year.",
         "role": "Both the offering and the topic list for that run. Teaching assignments and student subject choices point here.",
-        "context": "This is where a year's curriculum actually differs from the last. Core subjects are taken by everyone in the grade; in S3 the non-core ones are chosen.",
+        "context": "This is where a year's curriculum actually differs from the last. Core subjects are taken by everyone in the class; in S3 the non-core ones are chosen.",
         "fields": [
             ("subject", "What is taught."),
-            ("grade", "Who it is taught to."),
-            ("academic_year", "When. Subject, grade and year together are unique — one syllabus per run."),
-            ("is_core", "Everyone in the grade takes it. Clear it for an S3 elective, which students then choose."),
+            ("academy_class", "Who it is taught to."),
+            ("academic_year", "When. Subject, class and year together are unique — one syllabus per run."),
+            ("is_core", "Everyone in the class takes it. Clear it for an S3 elective, which students then choose."),
             ("status", "draft while being built, published once teaching, retired afterwards."),
             ("date_published", "When it was published. Left empty on drafts."),
             ("pass_mark_pct", "The mark a topic result must reach to count as passed, 50% by default. It lives here rather than on each result, so moving the bar re-reads the whole year's marks without re-entering any of them."),
@@ -196,7 +217,7 @@ ENTITY_HELP = {
     "topicresult": {
         "summary": "Where one student stands on one topic of one subject.",
         "role": "The row the knowledge map reads, and what a subject's percent completion is counted from: passed topics over the topics the syllabus makes assessable.",
-        "context": "Marks are normally entered through the grid on a student subject row — one line per topic — rather than added here one at a time. A topic taken again in a later grade is a separate result, so the earlier one stays as it was recorded.",
+        "context": "Marks are normally entered through the grid on a student subject row — one line per topic — rather than added here one at a time. A topic taken again in a later class is a separate result, so the earlier one stays as it was recorded.",
         "fields": [
             ("student_subject", "Which student, which subject, which year — all three in one reference."),
             ("topic", "The topic marked. It has to belong to the subject; anything else is refused."),
@@ -208,10 +229,10 @@ ENTITY_HELP = {
     },
     "teachingassignment": {
         "summary": "Which teacher teaches which syllabus.",
-        "role": "The staffing record; the syllabus already implies the grade and year.",
+        "role": "The staffing record; the syllabus already implies the class and year.",
         "context": "A teacher and syllabus can appear twice with different roles — a main teacher and a support teacher on the same class.",
         "fields": [
-            ("syllabus", "The subject, grade and year in one reference."),
+            ("syllabus", "The subject, class and year in one reference."),
             ("role", "primary, support, cover. Part of the uniqueness rule, so both can exist."),
         ],
     },
@@ -235,30 +256,28 @@ ENTITY_HELP = {
             ("difficulty", "1 to 5, for building balanced papers. Optional."),
         ],
     },
-    "binaryconfig": {
-        "summary": "The answer key for a true/false question.",
-        "role": "Marked by rule, with no partial credit.",
-        "context": "All or nothing, by design. If a question deserves partial marks, it is not a binary question.",
+    "questionattributetype": {
+        "summary": "One typed property a question of some type can carry — the answer-key fields, and anything added later.",
+        "role": "Replaces per-type tables like the old BinaryConfig/NumericConfig: a question_type's fields (expected_value, tolerance, true_label...) are rows here, filtered by applies_to, so a new field is a new row rather than a new table.",
+        "context": "Adding a school-specific field to a question no longer needs a migration — add an attribute type here, then set it per question on the question's own change form.",
         "fields": [
-            ("expected_value", "The correct answer. Ticked means true."),
-            ("true_label", "What the student sees instead of 'True' — Yes, Agree, Valid."),
-            ("false_label", "The same for the other option."),
-            ("true_feedback", "Shown when they answer true. Useful for explaining a common mistake."),
+            ("short_name", "The stable key code and imports look this up by. Set once — changing it orphans values stored under the old key."),
+            ("datatype", "How the stored text is interpreted: text, yes/no, whole number, decimal, date or date+time."),
+            ("datatype_config", "Datatype-specific configuration. For text, a '|'-separated list of allowed values acts as a closed choice set."),
+            ("applies_to", "Which question_type this is for. Empty applies to any type."),
+            ("min_occurs", "0 means optional. Not enforced by a database constraint."),
+            ("max_occurs", "1 means single-valued, the normal case."),
+            ("visible", "Hides the type from pickers without deleting it."),
         ],
     },
-    "numericconfig": {
-        "summary": "The expected value and tolerance for a numeric question.",
-        "role": "Marked by rule: within tolerance is correct.",
-        "context": "Tolerance is what makes this usable in physics and maths. The partial band optionally awards part marks to answers just outside it.",
+    "questionattribute": {
+        "summary": "One question's value for one QuestionAttributeType.",
+        "role": "The answer-key data itself — what used to live in BinaryConfig/NumericConfig rows.",
+        "context": "The value is always stored as text (value_reference) and resolved to a real Python value through its attribute type's datatype.",
         "fields": [
-            ("expected_value", "The correct number."),
-            ("tolerance_type", "absolute is ± a fixed amount; relative is ± a percentage; geometric scales with magnitude."),
-            ("tolerance", "The size of that band. 0 demands the exact value."),
-            ("partial_band", "A wider band outside tolerance that still earns something."),
-            ("partial_fraction", "What that wider band earns, as a fraction of the mark — 0.5 for half."),
-            ("unit", "The expected unit, where one is required."),
-            ("unit_penalty", "Fraction lost for the right number with the wrong unit."),
-            ("significant_figures", "Figures the answer is expected to. Optional."),
+            ("question", "The question this value belongs to."),
+            ("attribute_type", "Which property this is — and therefore how value_reference is interpreted."),
+            ("value_reference", "The value, as text. Read it through get_value() rather than directly."),
         ],
     },
     "evaluationprompt": {
@@ -294,7 +313,7 @@ ENTITY_HELP = {
         "context": "The name stays the same year after year. What changes is which version is current.",
         "fields": [
             ("purpose", "quiz, assignment, exam or mock. Affects how it is presented and reported."),
-            ("subject", "and grade — who the paper is for."),
+            ("subject", "and class — who the paper is for."),
             ("intro", "Front-page instructions shown before the first question."),
             ("owner", "Who is responsible for it."),
         ],
@@ -326,11 +345,11 @@ ENTITY_HELP = {
         ],
     },
     "paperassignment": {
-        "summary": "Issues a locked paper version to a grade or a cohort.",
+        "summary": "Issues a locked paper version to a class or a cohort.",
         "role": "Sets the window, the time limit, how many attempts are allowed and which one counts.",
-        "context": "Leave the cohort empty to issue to the whole grade; set it to give one group a different paper or a resit.",
+        "context": "Leave the cohort empty to issue to the whole class; set it to give one group a different paper or a resit.",
         "fields": [
-            ("student_cohort", "Narrows the audience to one group within the grade. Empty means everyone."),
+            ("student_cohort", "Narrows the audience to one group within the class. Empty means everyone."),
             ("time_open", "When students may start; time_close is the deadline."),
             ("time_limit", "Seconds allowed once started. Empty means untimed."),
             ("attempts", "How many sittings are allowed. 0 means unlimited."),
@@ -341,12 +360,12 @@ ENTITY_HELP = {
         ],
     },
     "studentcohort": {
-        "summary": "A group of students inside one grade.",
+        "summary": "A group of students inside one class.",
         "role": "Any grouping — a quiz team, a reading circle, a remedial set. Papers can be assigned to one.",
-        "context": "Always inside a single grade; cohorts never span grades.",
+        "context": "Always inside a single class; cohorts never span classes.",
         "fields": [
             ("purpose", "activity, interest, remedial or other. What the group is for."),
-            ("grade", "and academic_year — the class and year it sits inside. Required."),
+            ("academy_class", "and academic_year — the class and year it sits inside. Required."),
             ("is_temporary", "A group for one activity rather than the whole year."),
             ("starts_on", "and ends_on — the period it exists for. Optional."),
         ],
@@ -354,7 +373,7 @@ ENTITY_HELP = {
     "cohortmembership": {
         "summary": "A student's membership of a cohort, through their enrolment.",
         "role": "The link between a cohort and the students in it.",
-        "context": "Going through the enrolment rather than the student is what guarantees a member is actually in that grade this year.",
+        "context": "Going through the enrolment rather than the student is what guarantees a member is actually in that class this year.",
         "fields": [
             ("enrolment", "The student's placement for the year, not the student directly."),
             ("student_cohort", "The group they belong to. One live row per pairing."),
@@ -408,8 +427,8 @@ ENTITY_HELP = {
         "role": "The light route beside the exam machinery. Everything a student hands in points at one of these, and its marks reach the subject average through the topic it belongs to.",
         "context": "A teacher writing tonight's homework attaches a sheet and hands it out. Building a versioned question paper for that would be wrong, and the paper route is still there for a real exam. Printed copies are identical: nothing on the page says whose it is, because the submission carries that.",
         "fields": [
-            ("syllabus", "The subject, grade and year it belongs to. A handout hangs off the syllabus, not a single lesson, so one sheet can cover a week."),
-            ("code", "Set on first save: SUBJECT-GRADE-YEAR-Hnnn. Printed on the sheet and quoted by every submission."),
+            ("syllabus", "The subject, class and year it belongs to. A handout hangs off the syllabus, not a single lesson, so one sheet can cover a week."),
+            ("code", "Set on first save: SUBJECT-CLASS-YEAR-Hnnn. Printed on the sheet and quoted by every submission."),
             ("topic", "The catalogued topic, so it appears beside that topic on the teacher's day. Optional — chapter and topic (as written) are what a teacher usually types."),
             ("is_assignment", "Students hand work back. Clear it for a sheet that is only to read."),
             ("kind", "Assignment is set in class. The exam kinds are sat under supervision, are never shown to a class in advance, and aggregate separately from coursework."),
@@ -463,7 +482,7 @@ ENTITY_HELP = {
         "context": "Nothing is overwritten. A redo is its own row at the next round number, so 'right first time' stays visible. Before an examiner opens it, and while the window is still open, a student may replace their own hand-in — the replaced row is voided rather than deleted and keeps its round number, so the record still shows what arrived first.",
         "fields": [
             ("handout", "The sheet this answers."),
-            ("enrolment", "Whose work, and in which grade and year — so the record stays true after they move up."),
+            ("enrolment", "Whose work, and in which class and year — so the record stays true after they move up."),
             ("code", "Stamped with the moment it arrived: handout code, admission number, timestamp. Identifies this hand-in and no other."),
             ("round_no", "1 is the first hand-in; 2 and 3 are redoes of what was marked wrong. Capped by the handout's max rounds."),
             ("state", "Whose desk it is on. Waiting for the examiner, being marked, checked and waiting for teacher approval, sent back to the examiner, approved and released, or returned to the student to redo. Being marked also means the student can no longer replace the file."),
@@ -499,7 +518,7 @@ ENTITY_HELP = {
         "context": "Deliberately a file rather than structured rows. A quarterly timetable is produced once a term as a document, and re-typing it into the system would be work with no reader — nobody queries an exam timetable, they look at it.",
         "fields": [
             ("category", "Exam timetable, exam syllabus or a general notice. It is what the board groups by."),
-            ("grade", "Which class it is for. Empty means every class sees it."),
+            ("academy_class", "Which class it is for. Empty means every class sees it."),
             ("academic_year", "The year it belongs to, so old timetables fall off the board."),
             ("body", "A line or two of context. The file is the notice; this is optional."),
             ("published_from", "Students see it from this moment. Empty means immediately."),
@@ -510,13 +529,13 @@ ENTITY_HELP = {
 
     # -- attendance ----------------------------------------------------
     "attendancesession": {
-        "summary": "One register: a grade, a date, a period.",
+        "summary": "One register: a class, a date, a period.",
         "role": "The header a set of attendance marks belongs to.",
         "context": "Leave the syllabus empty for a whole-day register; set it to take attendance for one lesson. Both can exist for the same day.",
         "fields": [
             ("date", "The day being registered."),
             ("period", "full_day for the daily register, or a period label such as 1 or assembly."),
-            ("syllabus", "Set for a lesson register, empty for a day register. Grade, year, date, period and this together are unique."),
+            ("syllabus", "Set for a lesson register, empty for a day register. Class, year, date, period and this together are unique."),
             ("taken_by", "Who called the register."),
             ("is_finalised", "Marks the register as settled, so later edits are deliberate."),
         ],

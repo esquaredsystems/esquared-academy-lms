@@ -13,43 +13,32 @@ Two layers, because one is not enough:
 
 The roles:
 
-    Admin                 everything
-    Admin                 everything, including permissions and passwords
-    Academic Admin        all school data, but no control over permissions
-    IT Administrator      accounts, permissions and passwords, but no results
-    Head of Department    academic authority: approves syllabi, locks papers
-    Teaching Staff        teaching, attendance and their students
-    Paper Setter          the question bank and draft papers; no student data
-    Marking Reviewer      confirms or overrides grades; cannot edit papers
-    Exam Operations       scanning and uploading scripts; no grades
-    Non-academic Staff    attendance, and the student and grade lists it needs
-    Student               their own record, results and attendance
-    Guardian              read-only, and only for the students linked to them
+    Administrator          everything: permissions, passwords, academic
+                            authority (approves syllabi, locks papers),
+                            accounts and office administration
+    Teacher                teaching, attendance and their students, plus
+                            the question bank and draft papers
+    Examiner               confirms or overrides grades, and scans and
+                            uploads exam scripts
+    Student                their own record, results and attendance
+    Guardian               read-only, and only for the students linked to them
                           — their ward's handed-in work and its checked
                           output included
-    Guest                 read-only list of grades, subjects and topics
+    Guest                 read-only list of classes, subjects and topics
 
 One person may hold several roles; that is the normal case in a small
 academy. The roles describe *jobs*, not people, so a single teacher can
-be Teaching Staff, Paper Setter and Marking Reviewer at once, and the
-separation only starts to bite once there are enough staff to want it.
-
-Row scoping for Head of Department is deliberately not implemented: the
-schema records no notion of who heads which subject, so the role sees
-every subject. Narrowing it needs a new table and a migration.
+also be an Examiner at once, and the separation only starts to bite once
+there are enough staff to want it. Composing and approving stay split
+regardless: only Administrator can lock a paper or approve a lesson, so
+a Teacher never signs off on their own material.
 """
 
 from rest_framework.permissions import DjangoModelPermissions
 
-ADMIN = "Admin"
-ACADEMIC_ADMIN = "Academic Admin"
-IT_ADMIN = "IT Administrator"
-HEAD_OF_DEPARTMENT = "Head of Department"
-TEACHING_STAFF = "Teaching Staff"
-PAPER_SETTER = "Paper Setter"
-MARKING_REVIEWER = "Marking Reviewer"
-EXAM_OPERATIONS = "Exam Operations"
-NON_ACADEMIC_STAFF = "Non-academic Staff"
+ADMINISTRATOR = "Administrator"
+TEACHER = "Teacher"
+EXAMINER = "Examiner"
 STUDENT = "Student"
 GUARDIAN = "Guardian"
 GUEST = "Guest"
@@ -66,15 +55,9 @@ GUEST = "Guest"
 NON_ADMIN_ROLES = {STUDENT, GUARDIAN, GUEST}
 
 ROLES = [
-    ADMIN,
-    ACADEMIC_ADMIN,
-    IT_ADMIN,
-    HEAD_OF_DEPARTMENT,
-    TEACHING_STAFF,
-    PAPER_SETTER,
-    MARKING_REVIEWER,
-    EXAM_OPERATIONS,
-    NON_ACADEMIC_STAFF,
+    ADMINISTRATOR,
+    TEACHER,
+    EXAMINER,
     GUARDIAN,
     STUDENT,
     GUEST,
@@ -84,29 +67,23 @@ ROLES = [
 #: Student and Guardian are absent by design — their whole definition is
 #: *which* rows they get, and that is decided by `scope_queryset`.
 STAFF_ROLES = [
-    ADMIN,
-    ACADEMIC_ADMIN,
-    IT_ADMIN,
-    HEAD_OF_DEPARTMENT,
-    TEACHING_STAFF,
-    PAPER_SETTER,
-    MARKING_REVIEWER,
-    EXAM_OPERATIONS,
-    NON_ACADEMIC_STAFF,
+    ADMINISTRATOR,
+    TEACHER,
+    EXAMINER,
 ]
 
 #: Roles allowed to lock a paper version — the sign-off gate. Setting a
-#: paper and approving it are separate acts; a Paper Setter drafts, and
-#: someone with academic authority freezes it.
-PAPER_APPROVAL_ROLES = [ADMIN, ACADEMIC_ADMIN, HEAD_OF_DEPARTMENT]
+#: paper and approving it are separate acts; a Teacher drafts, and
+#: Administrator freezes it.
+PAPER_APPROVAL_ROLES = [ADMINISTRATOR]
 
 #: Roles allowed to approve a lesson. Course content is built up as the
 #: year runs, and a teacher may not put their own material live: they
-#: draft and submit, and academic authority publishes.
-LESSON_APPROVAL_ROLES = [ADMIN, ACADEMIC_ADMIN, HEAD_OF_DEPARTMENT]
+#: draft and submit, and Administrator publishes.
+LESSON_APPROVAL_ROLES = [ADMINISTRATOR]
 
 #: Everything a Guest may read. Nothing else is visible to them at all.
-GUEST_VISIBLE_MODELS = {"grade", "subject", "topic"}
+GUEST_VISIBLE_MODELS = {"academyclass", "subject", "topic"}
 
 
 class RolePermission(DjangoModelPermissions):
@@ -221,7 +198,7 @@ def scope_queryset(user, queryset):
             # Course content is built up as the year runs and nothing
             # reaches a student before a head has approved it.
             return queryset.filter(status="approved")
-        if model_name in {"grade", "subject", "topic", "syllabus", "syllabustopic",
+        if model_name in {"academyclass", "subject", "topic", "syllabus", "syllabustopic",
                           "timetableslot", "lessontopic", "lectureitem",
                           "questionpaper", "paperassignment", "attachment",
                           # The sheet is set for the whole class, so it is
@@ -229,7 +206,7 @@ def scope_queryset(user, queryset):
                           "handout", "handoutlesson", "handoutsheet"}:
             return queryset
         # The notice board is a class noticeboard, not per-student rows:
-        # scoping happens by grade in the view, so nothing is hidden here.
+        # scoping happens by class in the view, so nothing is hidden here.
         if model_name == "notice":
             return queryset
 
@@ -241,7 +218,7 @@ def scope_queryset(user, queryset):
             return queryset.none()
         if model_name == "lesson":
             return queryset.filter(status="approved")
-        if model_name in {"grade", "subject", "topic", "syllabus", "syllabustopic",
+        if model_name in {"academyclass", "subject", "topic", "syllabus", "syllabustopic",
                           "timetableslot", "lessontopic", "lectureitem",
                           "handout", "handoutlesson", "handoutsheet", "notice"}:
             return queryset

@@ -45,8 +45,8 @@ class Command(BaseCommand):
         syllabi = (
             models.Syllabus.objects
             .filter(academic_year=year, voided=False)
-            .select_related("subject", "grade")
-            .order_by("grade__sort_order", "subject__sort_order", "subject__short_name")
+            .select_related("subject", "academy_class")
+            .order_by("academy_class__sort_order", "subject__sort_order", "subject__short_name")
         )
         if not syllabi:
             self.stdout.write("\n" + self.style.WARNING(
@@ -84,7 +84,7 @@ class Command(BaseCommand):
                 total_linked += linked
                 total_have += have
                 self.stdout.write(
-                    f"  {syl.grade.short_name:3} {syl.subject.short_name:5} "
+                    f"  {syl.academy_class.short_name:3} {syl.subject.short_name:5} "
                     f"{len(topics):2} topic(s): +{linked} linked"
                     + (f", {have} already there" if have else "")
                 )

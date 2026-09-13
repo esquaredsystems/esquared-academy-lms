@@ -75,18 +75,18 @@ class Command(BaseCommand):
                 f"No syllabi for {self.year}. Run `manage.py seed_curriculum` first."
             )
 
-        grades = {g.short_name: g for g in models.Grade.objects.all()}
-        by_grade = {}
-        for syllabus in syllabi.select_related("subject", "grade"):
-            by_grade.setdefault(syllabus.grade.short_name, []).append(syllabus)
+        academy_classes = {g.short_name: g for g in models.AcademyClass.objects.all()}
+        by_academy_class = {}
+        for syllabus in syllabi.select_related("subject", "academy_class"):
+            by_academy_class.setdefault(syllabus.academy_class.short_name, []).append(syllabus)
 
         self._load_teachers(user, syllabi)
-        self._load_students(user, grades, by_grade)
+        self._load_students(user, academy_classes, by_academy_class)
         self._load_results(user)
 
     def _load_teachers(self, user, syllabi):
         try:
-            teaching_staff = Group.objects.get(name=access.TEACHING_STAFF)
+            teaching_staff = Group.objects.get(name=access.TEACHER)
         except Group.DoesNotExist:
             teaching_staff = None
 
@@ -125,7 +125,7 @@ class Command(BaseCommand):
             else:
                 self._revive(teacher, "teachers")
 
-            # One teacher, several subjects — and every grade that runs them.
+            # One teacher, several subjects — and every academy_class that runs them.
             for syllabus in syllabi:
                 if syllabus.subject.short_name not in row["teaches"]:
                     continue
@@ -137,10 +137,10 @@ class Command(BaseCommand):
                 if created:
                     self._count("teaching assignments", 1)
 
-    def _load_students(self, user, grades, by_grade):
+    def _load_students(self, user, academy_classes, by_academy_class):
         for index, row in enumerate(demo_data.STUDENTS, start=1):
-            grade = grades.get(row["grade"])
-            if grade is None:
+            academy_class = academy_classes.get(row["academy_class"])
+            if academy_class is None:
                 continue
 
             student = models.Student.all_objects.filter(
@@ -162,12 +162,12 @@ class Command(BaseCommand):
             enrolment, created = self._get_or_create(
                 models.Enrolment,
                 {"created_by": user},
-                student=student, grade=grade, academic_year=self.year,
+                student=student, academy_class=academy_class, academic_year=self.year,
             )
             if created:
                 self._count("enrolments", 1)
 
-            for syllabus in self._subjects_for(row, grade, by_grade):
+            for syllabus in self._subjects_for(row, academy_class, by_academy_class):
                 _, made = self._get_or_create(
                     models.StudentSubject,
                     {"created_by": user},
@@ -241,15 +241,15 @@ class Command(BaseCommand):
             models.TopicResult.objects.bulk_create(new_rows, batch_size=500)
             self._count("topic marks", len(new_rows))
 
-    def _subjects_for(self, row, grade, by_grade):
+    def _subjects_for(self, row, academy_class, by_academy_class):
         """
-        Core everywhere; in the terminal grade, core plus this student's
+        Core everywhere; in the terminal academy_class, core plus this student's
         chosen electives. This is the school's rule, applied from the
-        data rather than hard-coded per grade.
+        data rather than hard-coded per academy_class.
         """
-        syllabi = by_grade.get(grade.short_name, [])
+        syllabi = by_academy_class.get(academy_class.short_name, [])
         core = [s for s in syllabi if s.is_core]
-        if not grade.is_terminal:
+        if not academy_class.is_terminal:
             return core
 
         wanted = set(row.get("electives", []))

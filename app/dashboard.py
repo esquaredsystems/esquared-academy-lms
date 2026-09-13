@@ -54,7 +54,7 @@ class _RolePanelsMixin:
         column = 0
 
         # -- Teaching --------------------------------------------------
-        if has(access.TEACHING_STAFF):
+        if has(access.TEACHER):
             # The first thing on the page, and the one a teacher actually
             # opens each morning. The model lists below are the filing
             # cabinet behind it.
@@ -85,7 +85,7 @@ class _RolePanelsMixin:
             column = 1
 
         # -- Academic authority ----------------------------------------
-        if has(access.HEAD_OF_DEPARTMENT, access.ACADEMIC_ADMIN, access.ADMIN):
+        if has(access.ADMINISTRATOR):
             self.children.append(modules.LinkList(
                 _("To review"),
                 children=[
@@ -100,17 +100,16 @@ class _RolePanelsMixin:
             ))
             self.children.append(modules.ModelList(
                 _("Curriculum"),
-                models=("app.Subject", "app.Topic", "app.Syllabus",
-                        "app.SyllabusTopic", "app.Grade"),
+                models=("app.Subject", "app.Syllabus", "app.AcademyClass"),
                 column=1, order=0,
             ))
             column = 1
 
         # -- Paper setting ---------------------------------------------
-        if has(access.PAPER_SETTER):
+        if has(access.TEACHER):
             self.children.append(modules.ModelList(
                 _("Question bank"),
-                models=("app.Question", "app.BinaryConfig", "app.NumericConfig",
+                models=("app.Question", "app.QuestionAttributeType", "app.QuestionAttribute",
                         "app.EvaluationPrompt", "app.PromptVersion"),
                 column=0, order=1,
             ))
@@ -121,7 +120,7 @@ class _RolePanelsMixin:
             ))
 
         # -- Marking ---------------------------------------------------
-        if has(access.MARKING_REVIEWER):
+        if has(access.EXAMINER):
             self.children.append(modules.LinkList(
                 _("Start here"),
                 children=[
@@ -137,7 +136,7 @@ class _RolePanelsMixin:
             ))
 
         # -- Exam operations -------------------------------------------
-        if has(access.EXAM_OPERATIONS):
+        if has(access.EXAMINER):
             self.children.append(modules.ModelList(
                 _("Scripts and uploads"),
                 models=("app.Attachment", "app.AttachmentLink",
@@ -146,7 +145,7 @@ class _RolePanelsMixin:
             ))
 
         # -- Office ----------------------------------------------------
-        if has(access.NON_ACADEMIC_STAFF):
+        if has(access.ADMINISTRATOR):
             self.children.append(modules.ModelList(
                 _("Attendance"),
                 models=("app.AttendanceSession", "app.AttendanceRecord"),
@@ -154,21 +153,20 @@ class _RolePanelsMixin:
             ))
             self.children.append(modules.ModelList(
                 _("Students"),
-                models=("app.Student", "app.Enrolment", "app.Grade"),
+                models=("app.Student", "app.Enrolment", "app.AcademyClass"),
                 column=1, order=4,
             ))
 
         # -- Running the academy ---------------------------------------
-        if has(access.ACADEMIC_ADMIN, access.ADMIN):
+        if has(access.ADMINISTRATOR):
             self.children.append(modules.ModelList(
                 _("People"),
-                models=("app.Student", "app.Teacher", "app.Enrolment",
-                        "app.GuardianLink"),
+                models=("app.Student", "app.Teacher", "app.Enrolment"),
                 column=1, order=2,
             ))
 
         # -- Keeping the system running --------------------------------
-        if has(access.IT_ADMIN, access.ADMIN):
+        if has(access.ADMINISTRATOR):
             self.children.append(modules.ModelList(
                 _("Accounts and access"),
                 models=("app.AppUser", "auth.Group"),
@@ -212,7 +210,7 @@ class _RolePanelsMixin:
         if has(access.GUEST) and not (roles - {access.GUEST}):
             self.children.append(modules.ModelList(
                 _("Curriculum"),
-                models=("app.Grade", "app.Subject", "app.Topic"),
+                models=("app.AcademyClass", "app.Subject"),
                 column=0, order=0,
             ))
 

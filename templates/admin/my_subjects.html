@@ -29,13 +29,13 @@
 
 <table class="subj">
   <tr>
-    <th>Grade</th><th>Subject</th>
+    <th>Class</th><th>Subject</th>
     <th>Lessons</th><th>Prepared ahead</th><th>Not logged</th>
     <th>Handouts</th><th>Open</th><th>Taught</th>
   </tr>
   {% for r in rows %}
     <tr>
-      <td>{{ r.syllabus.grade }}</td>
+      <td>{{ r.syllabus.academy_class }}</td>
       <td><a href="{{ r.url }}">{{ r.syllabus.subject }}</a></td>
       <td class="n">{{ r.lessons }}</td>
       <td class="n {% if r.ahead %}ok{% else %}warn{% endif %}">{{ r.ahead }}</td>

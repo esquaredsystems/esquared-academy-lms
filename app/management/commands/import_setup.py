@@ -29,6 +29,37 @@ from django.utils.text import slugify
 
 from app import access, models
 
+_STUDENT_ID_TYPE_MAP = {"cnic": "cnic", "b-form": "b_form", "bform": "b_form", "passport": "passport"}
+
+
+def set_student_attribute(student, short_name, raw_value):
+    """
+    Set (or clear) a StudentAttribute by its type's short_name.
+
+    Replaces the direct field assignment this helper's callers used before
+    national_id_type/guardian_contact_2 became attributes. The attribute
+    type must already exist (see the seed_attribute_types command) — a
+    workbook value for a type that isn't set up is silently skipped rather
+    than raising, since import_setup runs unattended.
+    """
+    attribute_type = models.StudentAttributeType.objects.filter(short_name=short_name).first()
+    if attribute_type is None:
+        return
+    existing = models.StudentAttribute.objects.filter(
+        student=student, attribute_type=attribute_type
+    ).first()
+    if not raw_value:
+        if existing:
+            existing.void(reason="cleared by import_setup")
+        return
+    if existing:
+        existing.value_reference = raw_value
+        existing.save()
+    else:
+        models.StudentAttribute.objects.create(
+            student=student, attribute_type=attribute_type, value_reference=raw_value,
+        )
+
 #: The school year runs 1 July 2026 – 30 June 2027 and is called "2627".
 DEFAULT_YEAR = 2627
 YEAR_START = date(2026, 7, 1)
@@ -40,7 +71,7 @@ YEAR_START = date(2026, 7, 1)
 #: joining dates are known.
 ADMISSION_EPOCH = datetime(2026, 7, 1, 8, 0)
 
-GRADE_LEVELS = {"E1": 1, "E2": 2, "S1": 3, "S2": 4, "S3": 5}
+ACADEMY_CLASS_LEVELS = {"E1": 1, "E2": 2, "S1": 3, "S2": 4, "S3": 5}
 
 #: What people type in the workbook -> the subject's short_name.
 SUBJECT_ALIASES = {
@@ -200,7 +231,7 @@ class Command(BaseCommand):
         ))
 
         with transaction.atomic():
-            self.grades = self.do_grades(wb)
+            self.academy_classes = self.do_academy_classes(wb)
             self.subjects = self.do_subjects(wb)
             self.teachers = self.do_teachers(wb)
             self.do_examiners(wb)
@@ -212,23 +243,23 @@ class Command(BaseCommand):
         self.report()
 
     # -- reference -----------------------------------------------------
-    def do_grades(self, wb):
+    def do_academy_classes(self, wb):
         found = {}
         for row in wb["Grades"].iter_rows(min_row=5):
             code, full = clean(row[0].value), clean(row[1].value)
             if not code or code.lower() == "code":
                 continue
-            grade = models.Grade.all_objects.filter(short_name=code).first()
-            if grade is None:
-                grade = models.Grade(short_name=code)
-            grade.full_name = full or code
-            grade.level = GRADE_LEVELS.get(code, grade.level or 0)
-            grade.sort_order = GRADE_LEVELS.get(code, 0)
-            grade.voided = False
-            grade.active_flag = True
-            grade.save()
-            found[code] = grade
-        self.counts["grades"] = len(found)
+            academy_class = models.AcademyClass.all_objects.filter(short_name=code).first()
+            if academy_class is None:
+                academy_class = models.AcademyClass(short_name=code)
+            academy_class.full_name = full or code
+            academy_class.level = ACADEMY_CLASS_LEVELS.get(code, academy_class.level or 0)
+            academy_class.sort_order = ACADEMY_CLASS_LEVELS.get(code, 0)
+            academy_class.voided = False
+            academy_class.active_flag = True
+            academy_class.save()
+            found[code] = academy_class
+        self.counts["classes"] = len(found)
         return found
 
     def do_subjects(self, wb):
@@ -258,22 +289,22 @@ class Command(BaseCommand):
         self.counts["subjects"] = len(found)
         return found
 
-    def syllabus_for(self, grade_code, subject_code):
-        grade = self.grades.get(grade_code)
+    def syllabus_for(self, academy_class_code, subject_code):
+        academy_class = self.academy_classes.get(academy_class_code)
         subject = self.subjects.get(subject_code)
-        if grade is None:
-            self.warn(f"unknown class {grade_code!r} — row skipped")
+        if academy_class is None:
+            self.warn(f"unknown class {academy_class_code!r} — row skipped")
             return None
         if subject is None:
             return None
         syllabus = models.Syllabus.all_objects.filter(
-            grade=grade, subject=subject, academic_year=self.year
+            academy_class=academy_class, subject=subject, academic_year=self.year
         ).first()
         if syllabus is None:
             syllabus = models.Syllabus(
-                grade=grade, subject=subject, academic_year=self.year
+                academy_class=academy_class, subject=subject, academic_year=self.year
             )
-        syllabus.full_name = f"{subject.full_name} — {grade.short_name} ({self.year})"
+        syllabus.full_name = f"{subject.full_name} — {academy_class.short_name} ({self.year})"
         syllabus.voided = False
         syllabus.active_flag = True
         syllabus.save()
@@ -337,14 +368,14 @@ class Command(BaseCommand):
             staff_no = clean(v[0])
             first, last = clean(v[1]), clean(v[2])
             email, mobile = clean(v[3]), clean(v[4])
-            grade_code, subject_typed = clean(v[5]), clean(v[6])
+            academy_class_code, subject_typed = clean(v[5]), clean(v[6])
             also_examines = clean(v[7]).lower().startswith("y")
             if not (staff_no and first):
                 continue
             seen_rows += 1
 
             if staff_no not in teachers:
-                user = self.staff_user(first, last, email, access.TEACHING_STAFF)
+                user = self.staff_user(first, last, email, access.TEACHER)
                 teacher = models.Teacher.all_objects.filter(staff_no=staff_no).first()
                 if teacher is None:
                     teacher = models.Teacher(staff_no=staff_no)
@@ -354,14 +385,14 @@ class Command(BaseCommand):
                 teacher.save()
                 teachers[staff_no] = teacher
                 if also_examines:
-                    group = Group.objects.filter(name=access.MARKING_REVIEWER).first()
+                    group = Group.objects.filter(name=access.EXAMINER).first()
                     if group:
                         user.groups.add(group)
 
             code = self.subject_code(subject_typed)
             if not code:
                 continue
-            syllabus = self.syllabus_for(grade_code, code)
+            syllabus = self.syllabus_for(academy_class_code, code)
             if syllabus is None:
                 continue
             link = models.TeachingAssignment.all_objects.filter(
@@ -399,7 +430,7 @@ class Command(BaseCommand):
             key = (first.lower(), last.lower())
             if key in by_name:
                 continue
-            user = self.staff_user(first, last, clean(v[3]), access.MARKING_REVIEWER)
+            user = self.staff_user(first, last, clean(v[3]), access.EXAMINER)
             by_name[key] = user
         self.counts["examiners"] = len(by_name)
         self.counts["examiner rows"] = rows
@@ -419,7 +450,7 @@ class Command(BaseCommand):
                 "admission_no": clean(v[0]),
                 "first_name": first,
                 "last_name": clean(v[2]),
-                "grade": clean(v[3]),
+                "academy_class": clean(v[3]),
                 "dob": v[4],
                 "email": clean(v[5]),
                 "mobile": clean(v[6]),
@@ -458,28 +489,28 @@ class Command(BaseCommand):
             student.mobile = s["mobile"]
             student.address = s["address"]
             student.national_id = s["national_id"] or None
-            if s["id_type"]:
-                mapped = {"cnic": "cnic", "b-form": "b_form",
-                          "bform": "b_form", "passport": "passport"}
-                student.national_id_type = mapped.get(s["id_type"].lower(), "")
             student.guardian_name = s["guardian_name"] or None
             student.guardian_contact = s["guardian_contact"] or None
-            student.guardian_contact_2 = s["guardian_contact_2"]
             student.voided = False
             student.active_flag = True
             student.save()
+            if s["id_type"]:
+                set_student_attribute(
+                    student, "national_id_type", _STUDENT_ID_TYPE_MAP.get(s["id_type"].lower(), "")
+                )
+            set_student_attribute(student, "guardian_contact_2", s["guardian_contact_2"])
             made += 1
 
-            grade = self.grades.get(s["grade"])
-            if grade is None:
-                self.warn(f"{s['first_name']}: unknown class {s['grade']!r} — not enrolled")
+            academy_class = self.academy_classes.get(s["academy_class"])
+            if academy_class is None:
+                self.warn(f"{s['first_name']}: unknown class {s['academy_class']!r} — not enrolled")
                 continue
             enrolment = models.Enrolment.all_objects.filter(
                 student=student, academic_year=self.year
             ).first()
             if enrolment is None:
                 enrolment = models.Enrolment(student=student, academic_year=self.year)
-            enrolment.grade = grade
+            enrolment.academy_class = academy_class
             enrolment.started_on = YEAR_START
             enrolment.status = "active"
             enrolment.voided = False
@@ -496,10 +527,10 @@ class Command(BaseCommand):
                 continue
             if is_example(v):
                 continue
-            grade_code, day_typed, period = clean(v[0]), clean(v[1]), clean(v[2])
+            academy_class_code, day_typed, period = clean(v[0]), clean(v[1]), clean(v[2])
             start, end = v[3], v[4]
             subject_typed, staff_no, room = clean(v[5]), clean(v[6]), clean(v[7])
-            if not (grade_code and day_typed and subject_typed):
+            if not (academy_class_code and day_typed and subject_typed):
                 continue
             day = DAYS.get(day_typed.lower())
             if day is None:
@@ -508,7 +539,7 @@ class Command(BaseCommand):
             code = self.subject_code(subject_typed)
             if not code:
                 continue
-            syllabus = self.syllabus_for(grade_code, code)
+            syllabus = self.syllabus_for(academy_class_code, code)
             if syllabus is None:
                 continue
             teacher = self.teachers.get(staff_no)

@@ -39,7 +39,7 @@
   <a class="tile" href="{% url 'my-subjects' %}">
     <h2>My subjects</h2>
     <p>Every class you take, and how far ahead it is prepared.</p>
-    <span class="count">{{ syllabi_count }}<small>across {{ grades|length }} grade{{ grades|pluralize }}</small></span>
+    <span class="count">{{ syllabi_count }}<small>across {{ academy_classes|length }} class{{ academy_classes|pluralize:"es" }}</small></span>
   </a>
 
   <a class="tile" href="{% url 'assignments' %}">
@@ -62,7 +62,7 @@
 
   <a class="tile" href="{% url 'browse' %}">
     <h2>Course</h2>
-    <p>Grade, subject, topic — down to lectures, assignments and who is in each class.</p>
+    <p>Class, subject, topic — down to lectures, assignments and who is in each class.</p>
     <span class="count">{{ students }}<small>students</small></span>
   </a>
 

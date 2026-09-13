@@ -1,8 +1,8 @@
 """
 Show one account's login state and, optionally, set its password.
 
-    python manage.py reset_login reviewer_test_1            # just report
-    python manage.py reset_login reviewer_test_1 --set      # report, then set a password
+    python manage.py reset_login examiner_test_1            # just report
+    python manage.py reset_login examiner_test_1 --set      # report, then set a password
     python manage.py reset_login new_user_1      --set --create  # create + set password
     python manage.py reset_login 26070108 --set --password Aariz  # non-interactive (scripted)
 

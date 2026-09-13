@@ -32,7 +32,7 @@
 <div class="nh-head">
   <h1>New handout</h1>
   <div class="sub">
-    {{ lesson.syllabus.subject }} · {{ lesson.syllabus.grade }} ·
+    {{ lesson.syllabus.subject }} · {{ lesson.syllabus.academy_class }} ·
     {{ lesson.date|date:"l j F" }}, period {{ lesson.period }}
   </div>
 </div>
@@ -45,7 +45,7 @@
     <input type="text" id="title" name="title" required
            value="{{ defaults.topic }}"
            placeholder="Quadratics — practice sheet">
-    <p class="hint">The subject, grade, year and code are taken from the lesson.</p>
+    <p class="hint">The subject, class, year and code are taken from the lesson.</p>
   </div>
 
   <div class="row2">

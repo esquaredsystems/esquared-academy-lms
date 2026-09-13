@@ -33,7 +33,7 @@
   <h1>{{ handout.title }}</h1>
   <p class="code">{{ handout.code }}</p>
   <dl>
-    <dt>Class</dt><dd>{{ handout.syllabus.grade }} — {{ handout.syllabus.subject }}</dd>
+    <dt>Class</dt><dd>{{ handout.syllabus.academy_class }} — {{ handout.syllabus.subject }}</dd>
     <dt>Due</dt><dd>{% if handout.due_date %}{{ handout.due_date|date:"l j F Y" }}{% else %}—{% endif %}</dd>
     {% if handout.max_marks %}<dt>Marks</dt><dd>{{ handout.max_marks }}</dd>{% endif %}
     <dt>Copies needed</dt><dd>{{ copies }}</dd>

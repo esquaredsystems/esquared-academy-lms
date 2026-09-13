@@ -30,26 +30,26 @@
 {% block content %}
 <div class="br-head"><h1>All lessons</h1></div>
 <p class="trail">
-  <a href="{% url 'browse' %}">Grades</a>
-  {% if grade %} › <a href="?grade={{ grade.pk }}">{{ grade }}</a>{% endif %}
+  <a href="{% url 'browse' %}">Classes</a>
+  {% if academy_class %} › <a href="?academy_class={{ academy_class.pk }}">{{ academy_class }}</a>{% endif %}
   {% if syllabus %} › <a href="?syllabus={{ syllabus.pk }}">{{ syllabus.subject }}</a>{% endif %}
   {% if topic %} › {{ topic }}{% endif %}
 </p>
 
-<h2 class="step">Grades</h2>
+<h2 class="step">Classes</h2>
 <div class="chips">
-  {% for g in grades %}
-    <a class="chip {% if grade and g.grade.pk == grade.pk %}on{% endif %}" href="?grade={{ g.grade.pk }}">
-      <b>{{ g.grade.short_name }}</b>
+  {% for g in academy_classes %}
+    <a class="chip {% if academy_class and g.academy_class.pk == academy_class.pk %}on{% endif %}" href="?academy_class={{ g.academy_class.pk }}">
+      <b>{{ g.academy_class.short_name }}</b>
       <small>{{ g.subjects }} subject{{ g.subjects|pluralize }} · {{ g.students }} student{{ g.students|pluralize }}</small>
     </a>
   {% empty %}
-    <span class="empty">No grades yet.</span>
+    <span class="empty">No classes yet.</span>
   {% endfor %}
 </div>
 
-{% if grade %}
-  <h2 class="step">Subjects in {{ grade }}</h2>
+{% if academy_class %}
+  <h2 class="step">Subjects in {{ academy_class }}</h2>
   <div class="chips">
     {% for s in subjects %}
       <a class="chip {% if syllabus and s.pk == syllabus.pk %}on{% endif %}" href="?syllabus={{ s.pk }}">
@@ -59,9 +59,9 @@
     {% endfor %}
   </div>
 
-  <h2 class="step">Students in {{ grade }}</h2>
-  <p><a href="{% url 'admin:app_enrolment_changelist' %}?grade__id__exact={{ grade.pk }}">
-    Open the list of students in {{ grade }} →</a></p>
+  <h2 class="step">Students in {{ academy_class }}</h2>
+  <p><a href="{% url 'admin:app_enrolment_changelist' %}?academy_class__id__exact={{ academy_class.pk }}">
+    Open the list of students in {{ academy_class }} →</a></p>
 {% endif %}
 
 {% if syllabus %}

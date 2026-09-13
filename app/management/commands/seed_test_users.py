@@ -28,15 +28,9 @@ from app import access, models
 
 #: role -> (username, first name)
 ACCOUNTS = {
-    access.ADMIN: ("admin_test_1", "Admin"),
-    access.ACADEMIC_ADMIN: ("academic_admin_test_1", "Academic Admin"),
-    access.IT_ADMIN: ("it_admin_test_1", "IT Admin"),
-    access.HEAD_OF_DEPARTMENT: ("hod_test_1", "Head of Department"),
-    access.TEACHING_STAFF: ("teacher_test_1", "Teacher"),
-    access.PAPER_SETTER: ("setter_test_1", "Paper Setter"),
-    access.MARKING_REVIEWER: ("reviewer_test_1", "Marking Reviewer"),
-    access.EXAM_OPERATIONS: ("examops_test_1", "Exam Operations"),
-    access.NON_ACADEMIC_STAFF: ("office_test_1", "Office Staff"),
+    access.ADMINISTRATOR: ("admin_test_1", "Administrator"),
+    access.TEACHER: ("teacher_test_1", "Teacher"),
+    access.EXAMINER: ("examiner_test_1", "Examiner"),
     access.STUDENT: ("student_test_1", "Student"),
     access.GUARDIAN: ("guardian_test_1", "Guardian"),
     access.GUEST: ("guest_test_1", "Guest"),
@@ -153,16 +147,16 @@ class Command(BaseCommand):
                 )
                 self.stdout.write("  linked a Student record to student_test_1")
 
-            grade = models.Grade.objects.first()
-            if grade and not models.Enrolment.objects.filter(student=student).exists():
+            academy_class = models.AcademyClass.objects.first()
+            if academy_class and not models.Enrolment.objects.filter(student=student).exists():
                 models.Enrolment.objects.create(
-                    student=student, grade=grade,
+                    student=student, academy_class=academy_class,
                     academic_year=models.timezone.localdate().year,
                 )
-                self.stdout.write(f"  enrolled student_test_1 in {grade}")
-            elif not grade:
+                self.stdout.write(f"  enrolled student_test_1 in {academy_class}")
+            elif not academy_class:
                 self.stdout.write(self.style.WARNING(
-                    "  no grades exist, so student_test_1 was not enrolled"
+                    "  no classes exist, so student_test_1 was not enrolled"
                 ))
 
         guardian_user = models.AppUser.objects.filter(username="guardian_test_1").first()

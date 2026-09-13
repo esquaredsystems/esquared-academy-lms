@@ -48,7 +48,7 @@
       </td>
       <td>{{ r.student.full_name }}<br>
         <small style="color:var(--ac-ink-3,#645c50)">{{ r.student.admission_no }}</small></td>
-      <td>{{ r.handout.syllabus.grade }} · {{ r.handout.syllabus.subject.short_name }}</td>
+      <td>{{ r.handout.syllabus.academy_class }} · {{ r.handout.syllabus.subject.short_name }}</td>
       <td>{{ r.handout.topic_text|default:r.handout.title }}<br>
         <small style="color:var(--ac-ink-3,#645c50)">{{ r.handout.code }}</small></td>
       <td>{% if r.submission.is_late %}<span class="pill late">Late</span>{% else %}On time{% endif %}</td>

@@ -61,8 +61,10 @@ class AppUserSerializer(serializers.ModelSerializer):
 
 
 # --- people & placement ----------------------------------------------
-GradeSerializer = build_serializer(models.Grade)
+AcademyClassSerializer = build_serializer(models.AcademyClass)
 StudentSerializer = build_serializer(models.Student)
+StudentAttributeTypeSerializer = build_serializer(models.StudentAttributeType)
+StudentAttributeSerializer = build_serializer(models.StudentAttribute)
 TeacherSerializer = build_serializer(models.Teacher)
 EnrolmentSerializer = build_serializer(models.Enrolment)
 
@@ -110,8 +112,8 @@ PromptVersionSerializer = build_serializer(models.PromptVersion)
 
 # --- question bank ----------------------------------------------------
 QuestionSerializer = build_serializer(models.Question)
-BinaryConfigSerializer = build_serializer(models.BinaryConfig)
-NumericConfigSerializer = build_serializer(models.NumericConfig)
+QuestionAttributeTypeSerializer = build_serializer(models.QuestionAttributeType)
+QuestionAttributeSerializer = build_serializer(models.QuestionAttribute)
 
 # --- papers -----------------------------------------------------------
 QuestionPaperSerializer = build_serializer(models.QuestionPaper)

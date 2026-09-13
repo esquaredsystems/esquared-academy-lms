@@ -30,22 +30,22 @@ from . import access, audit, columns, demo_data, entity_help, files, models
 
 
 class Fixture(TestCase):
-    """Shared skeleton: one grade, one subject, one paper, two questions."""
+    """Shared skeleton: one class, one subject, one paper, two questions."""
 
     @classmethod
     def setUpTestData(cls):
         cls.user = models.AppUser.objects.create_superuser(
             "tester", "tester@example.com", "pw12345!"
         )
-        cls.grade = models.Grade.objects.create(
-            level=5, short_name="G5", full_name="Grade 5", is_terminal=True,
+        cls.academy_class = models.AcademyClass.objects.create(
+            level=5, short_name="G5", full_name="Class 5", is_terminal=True,
             created_by=cls.user,
         )
         cls.subject = models.Subject.objects.create(
             short_name="ENG", full_name="English Language", created_by=cls.user
         )
         cls.syllabus = models.Syllabus.objects.create(
-            subject=cls.subject, grade=cls.grade, academic_year=2026, created_by=cls.user
+            subject=cls.subject, academy_class=cls.academy_class, academic_year=2026, created_by=cls.user
         )
         cls.topic = models.Topic.objects.create(
             subject=cls.subject, short_name="COMP", full_name="Comprehension",
@@ -72,7 +72,7 @@ class Fixture(TestCase):
             created_by=cls.user,
         )
         cls.paper = models.QuestionPaper.objects.create(
-            subject=cls.subject, grade=cls.grade, name="Mid-Term",
+            subject=cls.subject, academy_class=cls.academy_class, name="Mid-Term",
             purpose=models.PaperPurpose.EXAM, created_by=cls.user,
         )
         cls.student = models.Student.objects.create(
@@ -138,22 +138,22 @@ class PaperVersioningTests(Fixture):
 class EnrolmentTests(Fixture):
     def test_one_live_enrolment_per_student_per_year(self):
         models.Enrolment.objects.create(
-            student=self.student, grade=self.grade, academic_year=2026, created_by=self.user
+            student=self.student, academy_class=self.academy_class, academic_year=2026, created_by=self.user
         )
         with self.assertRaises(IntegrityError), transaction.atomic():
             models.Enrolment.objects.create(
-                student=self.student, grade=self.grade, academic_year=2026,
+                student=self.student, academy_class=self.academy_class, academic_year=2026,
                 created_by=self.user,
             )
 
     def test_voided_enrolment_does_not_block_a_corrected_one(self):
         first = models.Enrolment.objects.create(
-            student=self.student, grade=self.grade, academic_year=2026, created_by=self.user
+            student=self.student, academy_class=self.academy_class, academic_year=2026, created_by=self.user
         )
-        first.void(user=self.user, reason="wrong grade")
+        first.void(user=self.user, reason="wrong class")
 
         models.Enrolment.objects.create(
-            student=self.student, grade=self.grade, academic_year=2026, created_by=self.user
+            student=self.student, academy_class=self.academy_class, academic_year=2026, created_by=self.user
         )
 
         self.assertEqual(models.Enrolment.objects.filter(student=self.student).count(), 1)
@@ -167,7 +167,7 @@ class CountedAttemptTests(Fixture):
         version = self.draft_version()
         version.lock(user=self.user)
         self.assignment = models.PaperAssignment.objects.create(
-            paper_version=version, grade=self.grade, academic_year=2026,
+            paper_version=version, academy_class=self.academy_class, academic_year=2026,
             attempts=0, created_by=self.user,
         )
 
@@ -331,10 +331,10 @@ class SeedCurriculumTests(TestCase):
         self.seed()
 
         self.assertEqual(
-            [g.short_name for g in models.Grade.objects.all()],
+            [g.short_name for g in models.AcademyClass.objects.all()],
             ["E1", "E2", "S1", "S2", "S3"],
         )
-        self.assertTrue(models.Grade.objects.get(short_name="S3").is_terminal)
+        self.assertTrue(models.AcademyClass.objects.get(short_name="S3").is_terminal)
         self.assertEqual(models.Subject.objects.count(), 18)
         # 156 syllabus sections plus 462 published sub-topics.
         self.assertEqual(models.Topic.objects.count(), 618)
@@ -345,7 +345,7 @@ class SeedCurriculumTests(TestCase):
     def test_seed_is_idempotent(self):
         self.seed()
         before = (
-            models.Grade.objects.count(), models.Subject.objects.count(),
+            models.AcademyClass.objects.count(), models.Subject.objects.count(),
             models.Topic.objects.count(), models.Syllabus.objects.count(),
             models.SyllabusTopic.objects.count(),
         )
@@ -353,7 +353,7 @@ class SeedCurriculumTests(TestCase):
         output = self.seed()
 
         after = (
-            models.Grade.objects.count(), models.Subject.objects.count(),
+            models.AcademyClass.objects.count(), models.Subject.objects.count(),
             models.Topic.objects.count(), models.Syllabus.objects.count(),
             models.SyllabusTopic.objects.count(),
         )
@@ -378,12 +378,12 @@ class SeedCurriculumTests(TestCase):
             9,
         )
 
-    def test_terminal_grade_is_the_only_one_with_electives(self):
+    def test_terminal_class_is_the_only_one_with_electives(self):
         self.seed()
 
         electives = models.Syllabus.objects.filter(academic_year=2026, is_core=False)
 
-        self.assertEqual({s.grade.short_name for s in electives}, {"S3"})
+        self.assertEqual({s.academy_class.short_name for s in electives}, {"S3"})
         self.assertEqual(electives.count(), 11)
 
     def test_a_second_year_reuses_the_catalogue(self):
@@ -403,7 +403,7 @@ class AuditBlockTests(Fixture):
 
     def test_uuid_is_assigned_on_insert(self):
         self.assertIsNotNone(self.student.uuid)
-        self.assertNotEqual(self.student.uuid, self.grade.uuid)
+        self.assertNotEqual(self.student.uuid, self.academy_class.uuid)
 
     def test_uuid_cannot_be_changed(self):
         original = self.student.uuid
@@ -441,18 +441,18 @@ class AuditBlockTests(Fixture):
     def test_the_acting_user_is_stamped_without_being_passed(self):
         token = audit.set_current_user(self.user)
         try:
-            grade = models.Grade.objects.create(
+            academy_class = models.AcademyClass.objects.create(
                 level=9, short_name="S1", full_name="Senior 1"
             )
-            self.assertEqual(grade.created_by, self.user)
+            self.assertEqual(academy_class.created_by, self.user)
 
             other = models.AppUser.objects.create_user("marker", "m@example.com", "pw12345!")
             audit.set_current_user(other)
-            grade.room = "204"
-            grade.save()
+            academy_class.room = "204"
+            academy_class.save()
 
-            self.assertEqual(grade.changed_by, other)
-            self.assertEqual(grade.created_by, self.user)
+            self.assertEqual(academy_class.changed_by, other)
+            self.assertEqual(academy_class.created_by, self.user)
         finally:
             audit.reset_current_user(token)
 
@@ -651,23 +651,23 @@ class AttachmentTests(Fixture):
 class AttendanceTests(Fixture):
     def setUp(self):
         self.enrolment = models.Enrolment.objects.create(
-            student=self.student, grade=self.grade, academic_year=2026, created_by=self.user
+            student=self.student, academy_class=self.academy_class, academic_year=2026, created_by=self.user
         )
         self.session = models.AttendanceSession.objects.create(
-            grade=self.grade, academic_year=2026, date=date(2026, 9, 2), created_by=self.user
+            academy_class=self.academy_class, academic_year=2026, date=date(2026, 9, 2), created_by=self.user
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
-    def test_one_register_per_grade_date_period(self):
+    def test_one_register_per_class_date_period(self):
         with self.assertRaises(IntegrityError), transaction.atomic():
             models.AttendanceSession.objects.create(
-                grade=self.grade, academic_year=2026, date=date(2026, 9, 2), created_by=self.user
+                academy_class=self.academy_class, academic_year=2026, date=date(2026, 9, 2), created_by=self.user
             )
 
     def test_a_lesson_register_sits_beside_the_day_register(self):
         models.AttendanceSession.objects.create(
-            grade=self.grade, academic_year=2026, date=date(2026, 9, 2),
+            academy_class=self.academy_class, academic_year=2026, date=date(2026, 9, 2),
             syllabus=self.syllabus, period="3", created_by=self.user,
         )
 
@@ -729,14 +729,14 @@ class RoleTests(Fixture):
         call_command("seed_roles", stdout=StringIO())
 
         cls.enrolment = models.Enrolment.objects.create(
-            student=cls.student, grade=cls.grade, academic_year=2026, created_by=cls.user
+            student=cls.student, academy_class=cls.academy_class, academic_year=2026, created_by=cls.user
         )
         cls.other_student = models.Student.objects.create(
             admission_no="A-999", first_name="Bilal", last_name="Iqbal", created_by=cls.user
         )
 
-        cls.teacher_user = cls._member("teacher1", access.TEACHING_STAFF)
-        cls.office_user = cls._member("office1", access.NON_ACADEMIC_STAFF)
+        cls.teacher_user = cls._member("teacher1", access.TEACHER)
+        cls.administrator_user = cls._member("owner1", access.ADMINISTRATOR)
         cls.guest_user = cls._member("guest1", access.GUEST)
         cls.student_user = cls._member("pupil1", access.STUDENT)
         cls.student.user = cls.student_user
@@ -765,7 +765,7 @@ class RoleTests(Fixture):
     def test_guest_sees_the_catalogue_and_nothing_else(self):
         client = self.api(self.guest_user)
 
-        self.assertEqual(client.get("/api/grades/").status_code, 200)
+        self.assertEqual(client.get("/api/academy-classes/").status_code, 200)
         self.assertEqual(client.get("/api/subjects/").status_code, 200)
         self.assertEqual(client.get("/api/topics/").status_code, 200)
         self.assertEqual(client.get("/api/students/").status_code, 403)
@@ -786,29 +786,27 @@ class RoleTests(Fixture):
         self.assertEqual(client.get("/api/answers/").status_code, 200)
         self.assertEqual(client.get("/api/attendance-sessions/").status_code, 200)
 
-    def test_the_question_bank_belongs_to_the_paper_setter(self):
+    def test_teacher_reaches_the_question_bank(self):
         """
-        A teacher's reach stops at the question bank.
+        Teaching and paper setting are one role now.
 
-        Paper setting is its own role, and a teacher who also sets papers
-        is given that role as well rather than having it folded into this
-        one — the reasoning is on TEACHING_STAFF in seed_roles.py. The
-        assertion is here so the separation cannot quietly come undone.
+        They used to be split (Teaching Staff / Paper Setter) so a teacher
+        who also drafted papers needed both roles; the assertion here is
+        that a Teacher account reaches the question bank directly, with no
+        second role required — see the Teacher entry in seed_roles.py.
         """
         self.assertEqual(
-            self.api(self.teacher_user).get("/api/questions/").status_code, 403
+            self.api(self.teacher_user).get("/api/questions/").status_code, 200
         )
-        setter = self._member("setter1", access.PAPER_SETTER)
-        self.assertEqual(self.api(setter).get("/api/questions/").status_code, 200)
 
-    def test_non_academic_staff_get_attendance_but_not_questions(self):
-        client = self.api(self.office_user)
+    def test_administrator_reaches_everything_a_teacher_cannot(self):
+        client = self.api(self.administrator_user)
 
         self.assertEqual(client.get("/api/attendance-sessions/").status_code, 200)
         self.assertEqual(client.get("/api/attendance-records/").status_code, 200)
         self.assertEqual(client.get("/api/students/").status_code, 200)
-        self.assertEqual(client.get("/api/questions/").status_code, 403)
-        self.assertEqual(client.get("/api/evaluations/").status_code, 403)
+        self.assertEqual(client.get("/api/questions/").status_code, 200)
+        self.assertEqual(client.get("/api/evaluations/").status_code, 200)
 
     def test_a_student_sees_only_their_own_record(self):
         client = self.api(self.student_user)
@@ -879,7 +877,7 @@ class EntityHelpTests(Fixture):
         self.assertIn("Never duplicate a question", body)
 
     def test_the_panel_starts_closed(self):
-        body = self.client.get("/admin/app/grade/").content.decode(errors="ignore")
+        body = self.client.get("/admin/app/academyclass/").content.decode(errors="ignore")
 
         self.assertIn('id="entity-help"', body)
         self.assertIn("hidden", body.split('id="entity-help"')[1][:120])
@@ -1492,7 +1490,7 @@ class DemoDataTests(TestCase):
             models.Enrolment.objects.filter(student__in=self.demo_students()).count(), 20
         )
 
-    def test_every_student_is_in_exactly_one_grade(self):
+    def test_every_student_is_in_exactly_one_class(self):
         self.load()
 
         for student in self.demo_students():
@@ -1509,20 +1507,20 @@ class DemoDataTests(TestCase):
             with self.subTest(teacher=teacher.staff_no):
                 self.assertGreater(len(subjects), 1)
 
-    def test_below_the_terminal_grade_everyone_takes_the_same_subjects(self):
+    def test_below_the_terminal_class_everyone_takes_the_same_subjects(self):
         self.load()
 
         for code in ("E1", "E2", "S1", "S2"):
             enrolments = models.Enrolment.objects.filter(
-                grade__short_name=code, student__in=self.demo_students()
+                academy_class__short_name=code, student__in=self.demo_students()
             )
             taken = {
                 frozenset(s.syllabus_id for s in e.subjects.all()) for e in enrolments
             }
-            with self.subTest(grade=code):
+            with self.subTest(academy_class=code):
                 self.assertEqual(len(taken), 1, "subjects should be identical")
 
-    def test_only_the_terminal_grade_has_electives(self):
+    def test_only_the_terminal_class_has_electives(self):
         self.load()
 
         electives = models.StudentSubject.objects.filter(
@@ -1531,7 +1529,7 @@ class DemoDataTests(TestCase):
 
         self.assertTrue(electives.exists())
         self.assertEqual(
-            {e.enrolment.grade.short_name for e in electives}, {"S3"}
+            {e.enrolment.academy_class.short_name for e in electives}, {"S3"}
         )
 
     def test_terminal_students_choose_differently(self):
@@ -1544,7 +1542,7 @@ class DemoDataTests(TestCase):
                 if not s.syllabus.is_core
             )
             for e in models.Enrolment.objects.filter(
-                grade__short_name="S3", student__in=self.demo_students()
+                academy_class__short_name="S3", student__in=self.demo_students()
             )
         }
 
@@ -1761,13 +1759,13 @@ class StudentSubjectHistoryTests(Fixture):
             short_name="ART", full_name="Art and Design", created_by=cls.user
         )
         cls.maths_2025 = models.Syllabus.objects.create(
-            subject=cls.maths, grade=cls.grade, academic_year=2025, created_by=cls.user
+            subject=cls.maths, academy_class=cls.academy_class, academic_year=2025, created_by=cls.user
         )
         cls.english_2026 = cls.syllabus
 
     def enrol(self, year, ended=None):
         return models.Enrolment.objects.create(
-            student=self.student, grade=self.grade, academic_year=year,
+            student=self.student, academy_class=self.academy_class, academic_year=year,
             ended_on=ended, created_by=self.user,
         )
 
@@ -1799,7 +1797,7 @@ class StudentSubjectHistoryTests(Fixture):
 
     def test_a_subject_continued_this_year_outranks_last_year(self):
         maths_2026 = models.Syllabus.objects.create(
-            subject=self.maths, grade=self.grade, academic_year=2026,
+            subject=self.maths, academy_class=self.academy_class, academic_year=2026,
             created_by=self.user,
         )
         self.take(self.enrol(2025), self.maths_2025)
@@ -1917,7 +1915,7 @@ class TopicResultFixture(Fixture):
             syllabus=cls.syllabus, topic=cls.writing, sort_order=2, created_by=cls.user
         )
         cls.enrolment = models.Enrolment.objects.create(
-            student=cls.student, grade=cls.grade, academic_year=2026,
+            student=cls.student, academy_class=cls.academy_class, academic_year=2026,
             created_by=cls.user,
         )
         cls.taking = models.StudentSubject.objects.create(
@@ -2211,3 +2209,100 @@ class DemoMarkTests(DemoDataTests):
             ).count(),
             0,
         )
+
+
+class AttributeTests(Fixture):
+    """
+    The generic attribute-type/attribute pattern (app/attributes.py),
+    exercised through its two concrete pairs: QuestionAttributeType/
+    QuestionAttribute and StudentAttributeType/StudentAttribute.
+    """
+
+    def setUp(self):
+        self.student = models.Student.objects.create(
+            first_name="Amina", last_name="Khan", created_by=self.user,
+        )
+
+    def test_value_round_trips_through_each_datatype(self):
+        cases = [
+            (models.AttributeDatatype.TEXT, "hello", "hello"),
+            (models.AttributeDatatype.BOOLEAN, True, True),
+            (models.AttributeDatatype.BOOLEAN, False, False),
+            (models.AttributeDatatype.INTEGER, 42, 42),
+            (models.AttributeDatatype.DECIMAL, Decimal("3.50"), Decimal("3.50")),
+            (models.AttributeDatatype.DATE, date(2026, 9, 1), date(2026, 9, 1)),
+        ]
+        for i, (datatype, value, expected) in enumerate(cases):
+            attribute_type = models.StudentAttributeType.objects.create(
+                name=f"Attr {i}", short_name=f"attr-{i}", datatype=datatype,
+                created_by=self.user,
+            )
+            attribute = models.StudentAttribute(
+                student=self.student, attribute_type=attribute_type,
+            )
+            attribute.set_value(value)
+            attribute.created_by = self.user
+            attribute.save()
+
+            self.assertEqual(attribute.get_value(), expected)
+            # And the same round trip survives a reload from the database.
+            reloaded = models.StudentAttribute.objects.get(pk=attribute.pk)
+            self.assertEqual(reloaded.get_value(), expected)
+
+    def test_blank_value_resolves_to_none(self):
+        attribute_type = models.StudentAttributeType.objects.create(
+            name="Blank test", short_name="blank-test",
+            datatype=models.AttributeDatatype.TEXT, created_by=self.user,
+        )
+        attribute = models.StudentAttribute.objects.create(
+            student=self.student, attribute_type=attribute_type,
+            value_reference="", created_by=self.user,
+        )
+        self.assertIsNone(attribute.get_value())
+
+    def test_text_datatype_config_enforces_a_choice_allow_list(self):
+        attribute_type = models.StudentAttributeType.objects.create(
+            name="ID type", short_name="id-type-test",
+            datatype=models.AttributeDatatype.TEXT,
+            datatype_config="cnic|b_form|passport", created_by=self.user,
+        )
+        ok = models.StudentAttribute(
+            student=self.student, attribute_type=attribute_type,
+            value_reference="cnic",
+        )
+        ok.clean()  # must not raise
+
+        bad = models.StudentAttribute(
+            student=self.student, attribute_type=attribute_type,
+            value_reference="driving_license",
+        )
+        with self.assertRaises(ValidationError):
+            bad.clean()
+
+    def test_one_value_per_student_per_attribute_type(self):
+        attribute_type = models.StudentAttributeType.objects.create(
+            name="Unique test", short_name="unique-test",
+            datatype=models.AttributeDatatype.TEXT, created_by=self.user,
+        )
+        models.StudentAttribute.objects.create(
+            student=self.student, attribute_type=attribute_type,
+            value_reference="first", created_by=self.user,
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                models.StudentAttribute.objects.create(
+                    student=self.student, attribute_type=attribute_type,
+                    value_reference="second", created_by=self.user,
+                )
+
+    def test_question_attribute_type_can_be_restricted_to_a_question_type(self):
+        attribute_type = models.QuestionAttributeType.objects.create(
+            name="Expected value", short_name="expected-value-test",
+            datatype=models.AttributeDatatype.TEXT,
+            applies_to=models.QuestionType.BINARY, created_by=self.user,
+        )
+        attribute = models.QuestionAttribute.objects.create(
+            question=self.q_binary, attribute_type=attribute_type,
+            value_reference="true", created_by=self.user,
+        )
+        self.assertEqual(attribute.get_value(), "true")

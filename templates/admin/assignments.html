@@ -47,7 +47,7 @@
 {% for c in cards %}
   <details class="klass">
     <summary>
-      <b>{{ c.syllabus.grade }} · {{ c.syllabus.subject }}</b>
+      <b>{{ c.syllabus.academy_class }} · {{ c.syllabus.subject }}</b>
       <span class="meta">{{ c.total }} assignment{{ c.total|pluralize }}</span>
       {% if c.outstanding %}
         <span class="flag">{{ c.outstanding }} still to hand in</span>

@@ -176,8 +176,8 @@ class AppUserAdmin(UserAdmin, AuditAdmin):
     readonly_fields = AUDIT_READONLY
 
 
-@admin.register(models.Grade)
-class GradeAdmin(AuditAdmin):
+@admin.register(models.AcademyClass)
+class AcademyClassAdmin(AuditAdmin):
     list_display = ("full_name", "short_name", "level", "is_terminal", "capacity", "visible", "live")
     search_fields = ("short_name", "full_name", "id_number")
     list_filter = ("is_terminal", "visible", IncludeVoidedFilter)
@@ -230,6 +230,20 @@ class PhotoAdmin(AuditAdmin):
         return "".join(p[0].upper() for p in parts[:2]) or "?"
 
 
+class StudentAttributeInline(admin.TabularInline):
+    model = models.StudentAttribute
+    extra = 0
+    fields = ("attribute_type", "value_reference", "voided")
+    raw_id_fields = ("attribute_type",)
+
+
+class GuardianLinkInline(admin.TabularInline):
+    model = models.GuardianLink
+    extra = 0
+    fields = ("user", "relationship", "is_primary", "can_view_marks", "voided")
+    raw_id_fields = ("user",)
+
+
 @admin.register(models.Student)
 class StudentAdmin(PhotoAdmin):
     list_display = ("avatar", "admission_no", "first_name", "last_name",
@@ -237,6 +251,7 @@ class StudentAdmin(PhotoAdmin):
     search_fields = ("admission_no", "first_name", "last_name", "id_number",
                      "national_id", "email", "mobile")
     raw_id_fields = ("user",)
+    inlines = (StudentAttributeInline, GuardianLinkInline)
     fieldsets = (
         (None, {"fields": (
             "photo_preview", "photo", "user", "admission_no", "id_number",
@@ -248,11 +263,11 @@ class StudentAdmin(PhotoAdmin):
                            "a candidate for a Cambridge examination.",
         }),
         ("Identity document", {
-            "fields": ("national_id_type", "national_id"),
+            "fields": ("national_id",),
             "description": "The name above must match this document exactly.",
         }),
         ("Guardian", {"fields": (
-            "guardian_name", "guardian_contact", "guardian_contact_2",
+            "guardian_name", "guardian_contact",
         )}),
         ("Subjects", {"fields": ("subject_panel",)}),
         ("Knowledge map", {"fields": ("knowledge_map_panel",)}),
@@ -437,7 +452,7 @@ class StudentAdmin(PhotoAdmin):
         year = timezone.localdate().year
         enrolments = (
             models.Enrolment.all_objects.filter(student=obj)
-            .select_related("grade")
+            .select_related("academy_class")
             .prefetch_related(
                 "subjects__syllabus__subject", "subjects__topic_results"
             )
@@ -477,6 +492,13 @@ class StudentAdmin(PhotoAdmin):
         })
 
 
+@admin.register(models.StudentAttributeType)
+class StudentAttributeTypeAdmin(AuditAdmin):
+    list_display = ("name", "short_name", "datatype", "visible", "live")
+    list_filter = ("datatype", "visible", IncludeVoidedFilter)
+    search_fields = ("name", "short_name", "description")
+
+
 @admin.register(models.Teacher)
 class TeacherAdmin(PhotoAdmin):
     list_display = ("avatar", "staff_no", "user", "id_number", "live")
@@ -494,16 +516,24 @@ class TeacherAdmin(PhotoAdmin):
 
 @admin.register(models.Enrolment)
 class EnrolmentAdmin(AuditAdmin):
-    list_display = ("student", "grade", "academic_year", "status", "started_on", "live")
-    list_filter = ("academic_year", "grade", "status", IncludeVoidedFilter)
+    list_display = ("student", "academy_class", "academic_year", "status", "started_on", "live")
+    list_filter = ("academic_year", "academy_class", "status", IncludeVoidedFilter)
     search_fields = ("student__admission_no", "student__last_name")
     raw_id_fields = ("student",)
+
+
+class TopicInline(admin.TabularInline):
+    model = models.Topic
+    extra = 0
+    fields = ("short_name", "full_name", "parent", "sort_order", "visible", "voided")
+    raw_id_fields = ("parent",)
 
 
 @admin.register(models.Subject)
 class SubjectAdmin(AuditAdmin):
     list_display = ("short_name", "full_name", "topic_count", "sort_order", "visible", "live")
     search_fields = ("short_name", "full_name", "id_number")
+    inlines = (TopicInline,)
 
     change_list_template = "admin/app/subject/change_list.html"
 
@@ -620,8 +650,8 @@ class TopicAdmin(AuditAdmin):
 
 @admin.register(models.Syllabus)
 class SyllabusAdmin(AuditAdmin):
-    list_display = ("subject", "grade", "academic_year", "is_core", "status", "live")
-    list_filter = ("academic_year", "grade", "subject", "status", "is_core", IncludeVoidedFilter)
+    list_display = ("subject", "academy_class", "academic_year", "is_core", "status", "live")
+    list_filter = ("academic_year", "academy_class", "subject", "status", "is_core", IncludeVoidedFilter)
     inlines = (SyllabusTopicInline,)
 
 
@@ -643,7 +673,7 @@ class TopicResultInline(admin.TabularInline):
 @admin.register(models.StudentSubject)
 class StudentSubjectAdmin(AuditAdmin):
     list_display = ("enrolment", "syllabus", "completion", "live")
-    list_filter = ("syllabus__academic_year", "syllabus__grade",
+    list_filter = ("syllabus__academic_year", "syllabus__academy_class",
                    "syllabus__subject", IncludeVoidedFilter)
     search_fields = ("enrolment__student__admission_no",
                      "enrolment__student__last_name")
@@ -846,16 +876,11 @@ class PromptVersionAdmin(AuditAdmin):
         return base
 
 
-class BinaryConfigInline(admin.StackedInline):
-    model = models.BinaryConfig
+class QuestionAttributeInline(admin.TabularInline):
+    model = models.QuestionAttribute
     extra = 0
-    can_delete = False
-
-
-class NumericConfigInline(admin.StackedInline):
-    model = models.NumericConfig
-    extra = 0
-    can_delete = False
+    fields = ("attribute_type", "value_reference", "voided")
+    raw_id_fields = ("attribute_type",)
 
 
 @admin.register(models.Question)
@@ -867,18 +892,14 @@ class QuestionAdmin(AuditAdmin):
     list_filter = ("question_type", "topic__subject", "difficulty", "visible", IncludeVoidedFilter)
     search_fields = ("name", "question_text", "group", "id_number")
     raw_id_fields = ("topic", "default_prompt_version")
-    inlines = (BinaryConfigInline, NumericConfigInline, AttachmentLinkInline)
+    inlines = (QuestionAttributeInline, AttachmentLinkInline)
 
 
-@admin.register(models.BinaryConfig)
-class BinaryConfigAdmin(AuditAdmin):
-    list_display = ("question", "expected_value", "live")
-
-
-@admin.register(models.NumericConfig)
-class NumericConfigAdmin(AuditAdmin):
-    list_display = ("question", "expected_value", "tolerance_type", "tolerance", "unit", "live")
-    list_filter = ("tolerance_type", IncludeVoidedFilter)
+@admin.register(models.QuestionAttributeType)
+class QuestionAttributeTypeAdmin(AuditAdmin):
+    list_display = ("name", "short_name", "datatype", "applies_to", "visible", "live")
+    list_filter = ("datatype", "applies_to", "visible", IncludeVoidedFilter)
+    search_fields = ("name", "short_name", "description")
 
 
 class PaperItemInline(admin.TabularInline):
@@ -890,8 +911,8 @@ class PaperItemInline(admin.TabularInline):
 
 @admin.register(models.QuestionPaper)
 class QuestionPaperAdmin(AuditAdmin):
-    list_display = ("name", "subject", "grade", "purpose", "live")
-    list_filter = ("purpose", "subject", "grade", IncludeVoidedFilter)
+    list_display = ("name", "subject", "academy_class", "purpose", "live")
+    list_filter = ("purpose", "subject", "academy_class", IncludeVoidedFilter)
     search_fields = ("name", "id_number")
 
 
@@ -946,7 +967,7 @@ class TimetableSlotAdmin(AuditAdmin):
 
     list_display = ("syllabus", "day_of_week", "period", "start_time", "end_time",
                     "teacher", "live")
-    list_filter = ("day_of_week", "syllabus__academic_year", "syllabus__grade",
+    list_filter = ("day_of_week", "syllabus__academic_year", "syllabus__academy_class",
                    IncludeVoidedFilter)
     search_fields = ("period", "syllabus__subject__short_name")
     raw_id_fields = ("syllabus", "teacher")
@@ -982,7 +1003,7 @@ class LessonAdmin(AuditAdmin):
 
     list_display = ("date", "period", "syllabus", "teacher", "title",
                     "status", "logged", "time_taught", "covered_pct", "live")
-    list_filter = ("status", "date", "syllabus__grade", "syllabus__subject",
+    list_filter = ("status", "date", "syllabus__academy_class", "syllabus__subject",
                    IncludeVoidedFilter)
     search_fields = ("title", "plan", "log")
     # Only the two "who did the workflow" fields stay as id lookups; the
@@ -1144,7 +1165,7 @@ class HandoutAdmin(AuditAdmin):
 
     list_display = ("code", "title", "syllabus", "due_date", "status",
                     "handed_in", "live")
-    list_filter = ("status", "is_assignment", "syllabus__grade",
+    list_filter = ("status", "is_assignment", "syllabus__academy_class",
                    "syllabus__subject", IncludeVoidedFilter)
     search_fields = ("code", "title", "instructions")
     raw_id_fields = ("syllabus", "topic", "activated_by")
@@ -1244,7 +1265,7 @@ class SubmissionAdmin(AuditAdmin):
 
     list_display = ("code", "student_name", "handout", "round_no", "sheet_version",
                     "state", "late", "awarded_marks", "time_submitted", "live")
-    list_filter = ("state", "round_no", "handout__syllabus__grade",
+    list_filter = ("state", "round_no", "handout__syllabus__academy_class",
                    IncludeVoidedFilter)
     search_fields = ("code", "enrolment__student__first_name",
                      "enrolment__student__last_name",
@@ -1282,8 +1303,8 @@ class CohortMembershipInline(admin.TabularInline):
 
 @admin.register(models.StudentCohort)
 class StudentCohortAdmin(AuditAdmin):
-    list_display = ("name", "grade", "academic_year", "purpose", "is_temporary", "live")
-    list_filter = ("purpose", "grade", "academic_year", "is_temporary", IncludeVoidedFilter)
+    list_display = ("name", "academy_class", "academic_year", "purpose", "is_temporary", "live")
+    list_filter = ("purpose", "academy_class", "academic_year", "is_temporary", IncludeVoidedFilter)
     search_fields = ("name", "id_number")
     inlines = (CohortMembershipInline,)
 
@@ -1297,10 +1318,10 @@ class CohortMembershipAdmin(AuditAdmin):
 @admin.register(models.PaperAssignment)
 class PaperAssignmentAdmin(AuditAdmin):
     list_display = (
-        "paper_version", "grade", "academic_year", "student_cohort",
+        "paper_version", "academy_class", "academic_year", "student_cohort",
         "time_open", "time_close", "attempts", "marking_method", "live",
     )
-    list_filter = ("grade", "academic_year", "marking_method", "is_practice", IncludeVoidedFilter)
+    list_filter = ("academy_class", "academic_year", "marking_method", "is_practice", IncludeVoidedFilter)
     raw_id_fields = ("paper_version", "student_cohort")
 
 
@@ -1478,9 +1499,9 @@ class AttendanceRecordInline(admin.TabularInline):
 
 @admin.register(models.AttendanceSession)
 class AttendanceSessionAdmin(AuditAdmin):
-    list_display = ("date", "grade", "period", "syllabus", "academic_year",
+    list_display = ("date", "academy_class", "period", "syllabus", "academic_year",
                     "marked", "is_finalised", "live")
-    list_filter = ("grade", "academic_year", "period", "is_finalised", IncludeVoidedFilter)
+    list_filter = ("academy_class", "academic_year", "period", "is_finalised", IncludeVoidedFilter)
     date_hierarchy = "date"
     raw_id_fields = ("syllabus",)
     inlines = (AttendanceRecordInline,)
@@ -1496,7 +1517,7 @@ class AttendanceSessionAdmin(AuditAdmin):
 @admin.register(models.AttendanceRecord)
 class AttendanceRecordAdmin(AuditAdmin):
     list_display = ("session", "student_name", "status", "minutes_late", "live")
-    list_filter = ("status", "session__grade", "session__academic_year", IncludeVoidedFilter)
+    list_filter = ("status", "session__academy_class", "session__academic_year", IncludeVoidedFilter)
     search_fields = ("enrolment__student__first_name", "enrolment__student__last_name")
     raw_id_fields = ("session", "enrolment")
 
@@ -1510,15 +1531,15 @@ class AttendanceRecordAdmin(AuditAdmin):
 # ---------------------------------------------------------------------
 @admin.register(models.Notice)
 class NoticeAdmin(AuditAdmin):
-    list_display = ("title", "category", "grade", "academic_year",
+    list_display = ("title", "category", "academy_class", "academic_year",
                     "date_posted", "posted_by", "live")
-    list_filter = ("category", "grade", "academic_year", IncludeVoidedFilter)
+    list_filter = ("category", "academy_class", "academic_year", IncludeVoidedFilter)
     search_fields = ("title", "body")
     raw_id_fields = ("posted_by",)
     date_hierarchy = "date_posted"
 
     fieldsets = (
-        (None, {"fields": ("title", "category", "grade", "academic_year", "body")}),
+        (None, {"fields": ("title", "category", "academy_class", "academic_year", "body")}),
         ("When it shows", {
             "fields": ("published_from", "published_until"),
             "description": "Both optional. Empty means from now, and forever.",

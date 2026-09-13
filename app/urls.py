@@ -32,8 +32,14 @@ router = DefaultRouter()
 router.register("users", views.AppUserViewSet, basename="appuser")
 
 # people & placement
-router.register("grades", views.GradeViewSet, basename="grade")
+router.register("academy-classes", views.AcademyClassViewSet, basename="academyclass")
 router.register("students", views.StudentViewSet, basename="student")
+router.register(
+    "student-attribute-types", views.StudentAttributeTypeViewSet, basename="studentattributetype"
+)
+router.register(
+    "student-attributes", views.StudentAttributeViewSet, basename="studentattribute"
+)
 router.register("teachers", views.TeacherViewSet, basename="teacher")
 router.register("enrolments", views.EnrolmentViewSet, basename="enrolment")
 
@@ -70,8 +76,12 @@ router.register("prompt-versions", views.PromptVersionViewSet, basename="promptv
 
 # question bank
 router.register("questions", views.QuestionViewSet, basename="question")
-router.register("binary-configs", views.BinaryConfigViewSet, basename="binaryconfig")
-router.register("numeric-configs", views.NumericConfigViewSet, basename="numericconfig")
+router.register(
+    "question-attribute-types", views.QuestionAttributeTypeViewSet, basename="questionattributetype"
+)
+router.register(
+    "question-attributes", views.QuestionAttributeViewSet, basename="questionattribute"
+)
 
 # papers & delivery
 router.register("question-papers", views.QuestionPaperViewSet, basename="questionpaper")

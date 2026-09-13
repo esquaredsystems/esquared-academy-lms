@@ -37,8 +37,8 @@
 <div class="demo-wrap">
   <p class="demo-lead">
     A small fictional school to try the system with: three teachers who each
-    cover several subjects, and twenty students across all five grades.
-    E1 to S2 take the whole core set for their grade; only S3 students choose
+    cover several subjects, and twenty students across all five classes.
+    E1 to S2 take the whole core set for their class; only S3 students choose
     electives, which is the rule the real school runs on. Part of every
     subject is marked topic by topic, so the completion figures and the
     knowledge maps have something in them.
@@ -88,12 +88,12 @@
 
   <table class="demo-table">
     <thead>
-      <tr><th>Grade</th><th>Students</th><th>Subjects each</th></tr>
+      <tr><th>Class</th><th>Students</th><th>Subjects each</th></tr>
     </thead>
     <tbody>
       {% for row in plan %}
         <tr>
-          <td>{{ row.grade }}</td>
+          <td>{{ row.academy_class }}</td>
           <td>{{ row.students }}</td>
           <td>{{ row.subjects }}</td>
         </tr>

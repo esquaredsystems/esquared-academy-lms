@@ -13,9 +13,9 @@ STAGE_OL = "OL"
 
 
 # ---------------------------------------------------------------------
-# Grades. `level` doubles as the Cambridge stage number.
+# Classes. `level` doubles as the Cambridge stage number.
 # ---------------------------------------------------------------------
-GRADES = [
+ACADEMY_CLASSES = [
     {"short_name": "E1", "full_name": "Elementary 1", "level": 7, "is_terminal": False},
     {"short_name": "E2", "full_name": "Elementary 2", "level": 8, "is_terminal": False},
     {"short_name": "S1", "full_name": "Senior 1", "level": 9, "is_terminal": False},
@@ -925,7 +925,7 @@ TOPICS = {
 
 
 # ---------------------------------------------------------------------
-# What each grade studies. (subject, stage, is_core)
+# What each class studies. (subject, stage, is_core)
 # ---------------------------------------------------------------------
 LS_CORE = [("ENG", STAGE_LS, True), ("MATH", STAGE_LS, True), ("SCI", STAGE_LS, True),
            ("CS", STAGE_LS, True), ("GP", STAGE_LS, True),

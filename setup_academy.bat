@@ -30,17 +30,19 @@ echo.
 echo   Running setup. Each step is logged to setup_log.txt
 echo.
 
-call :step "1 of 6  Applying database migrations"            migrate
+call :step "1 of 7  Applying database migrations"            migrate
 if errorlevel 1 goto :failed
-call :step "2 of 6  Creating the twelve roles"               seed_roles
+call :step "2 of 7  Creating the twelve roles"               seed_roles
 if errorlevel 1 goto :failed
-call :step "3 of 6  Importing staff, students and timetable" import_setup docs\setup_data.json
+call :step "3 of 7  Creating attribute types"                seed_attribute_types
 if errorlevel 1 goto :failed
-call :step "4 of 6  Creating logins for students"            seed_student_logins --commit
+call :step "4 of 7  Importing staff, students and timetable" import_setup docs\setup_data.json
 if errorlevel 1 goto :failed
-call :step "5 of 6  Building this fortnight's lessons"       generate_lessons --weeks 2
+call :step "5 of 7  Creating logins for students"            seed_student_logins --commit
 if errorlevel 1 goto :failed
-call :step "6 of 6  Where every account stands"              account_status
+call :step "6 of 7  Building this fortnight's lessons"       generate_lessons --weeks 2
+if errorlevel 1 goto :failed
+call :step "7 of 7  Where every account stands"              account_status
 
 echo.
 echo ===================================================================

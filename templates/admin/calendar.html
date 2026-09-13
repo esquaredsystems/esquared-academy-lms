@@ -41,7 +41,7 @@
           <span class="daynum">{{ day.date|date:"j" }}</span>
           {% for e in day.lessons %}
             <a class="ev" href="{{ e.url }}">
-              {{ e.lesson.period }} · {{ e.subject.short_name }} · {{ e.grade.short_name }}
+              {{ e.lesson.period }} · {{ e.subject.short_name }} · {{ e.academy_class.short_name }}
             </a>
           {% endfor %}
         </td>

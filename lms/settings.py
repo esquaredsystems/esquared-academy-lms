@@ -274,9 +274,9 @@ SPECTACULAR_SETTINGS = {
         "UploadStateEnum": "app.models.UploadState.choices",
     },
     "TAGS": [
-        {"name": "grades", "description": "Grades, which are also the classes."},
+        {"name": "academy-classes", "description": "Classes."},
         {"name": "students", "description": "Students and their enrolments."},
-        {"name": "syllabi", "description": "A subject taught to a grade in a year."},
+        {"name": "syllabi", "description": "A subject taught to a class in a year."},
         {"name": "questions", "description": "The reusable question bank."},
         {"name": "paper-versions", "description": "Frozen question cohorts."},
         {"name": "attempts", "description": "Sittings, answers and marking."},
@@ -334,7 +334,7 @@ JET_CHANGE_FORM_SIBLING_LINKS = True
 # work in that area holds it.
 JET_SIDE_MENU_ITEMS = [
     {"label": "People & placement", "permissions": ["app.view_student"], "items": [
-        {"name": "app.grade", "permissions": ["app.view_grade"]},
+        {"name": "app.academyclass", "permissions": ["app.view_academyclass"]},
         {"name": "app.student", "permissions": ["app.view_student"]},
         {"name": "app.teacher", "permissions": ["app.view_teacher"]},
         {"name": "app.enrolment", "permissions": ["app.view_enrolment"]},
@@ -343,9 +343,7 @@ JET_SIDE_MENU_ITEMS = [
     ]},
     {"label": "Curriculum", "permissions": ["app.view_subject"], "items": [
         {"name": "app.subject", "permissions": ["app.view_subject"]},
-        {"name": "app.topic", "permissions": ["app.view_topic"]},
         {"name": "app.syllabus", "permissions": ["app.view_syllabus"]},
-        {"name": "app.syllabustopic", "permissions": ["app.view_syllabustopic"]},
         {"name": "app.studentsubject", "permissions": ["app.view_studentsubject"]},
         {"name": "app.teachingassignment", "permissions": ["app.view_teachingassignment"]},
     ]},
@@ -390,8 +388,8 @@ JET_SIDE_MENU_ITEMS = [
     ]},
     {"label": "Question bank", "permissions": ["app.view_question"], "items": [
         {"name": "app.question", "permissions": ["app.view_question"]},
-        {"name": "app.binaryconfig", "permissions": ["app.view_binaryconfig"]},
-        {"name": "app.numericconfig", "permissions": ["app.view_numericconfig"]},
+        {"name": "app.questionattributetype", "permissions": ["app.view_questionattributetype"]},
+        {"name": "app.questionattribute", "permissions": ["app.view_questionattribute"]},
         {"name": "app.evaluationprompt", "permissions": ["app.view_evaluationprompt"]},
         {"name": "app.promptversion", "permissions": ["app.view_promptversion"]},
     ]},
@@ -422,7 +420,6 @@ JET_SIDE_MENU_ITEMS = [
     {"label": "Administration", "permissions": ["auth.view_group"], "items": [
         {"name": "app.appuser", "permissions": ["app.view_appuser"]},
         {"name": "auth.group", "permissions": ["auth.view_group"]},
-        {"name": "app.guardianlink", "permissions": ["app.view_guardianlink"]},
         {"name": "app.retentionpolicy", "permissions": ["app.view_retentionpolicy"]},
         {"name": "app.purgerun", "permissions": ["app.view_purgerun"]},
     ]},

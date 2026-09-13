@@ -44,7 +44,7 @@
 <div class="ck-head" style="margin-top:8px">
   <h1>{{ handout.topic_text|default:handout.title }}</h1>
   <div class="sub">
-    {{ handout.syllabus.grade }} · {{ handout.syllabus.subject.full_name|default:handout.syllabus.subject.short_name }}
+    {{ handout.syllabus.academy_class }} · {{ handout.syllabus.subject.full_name|default:handout.syllabus.subject.short_name }}
     · <b>{{ handout.code }}</b>
     {% if handout.due_date %} · due {{ handout.due_date|date:"l j F" }}{% endif %}
     {% if handout.max_marks %} · out of {{ handout.max_marks }}{% endif %}

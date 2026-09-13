@@ -3,7 +3,7 @@ Esquared Academy — assessment platform models.
 
 Mirrors the published ERD (schema v2):
 
-  * Grade and class are the same entity. Marks are never called "grade".
+  * AcademyClass and class are the same entity. Marks are never called "grade".
   * academic_year is a plain integer, not a foreign key.
   * Every table carries the audit block: created_by / date_created,
     changed_by / date_changed, voided / voided_by / date_voided /
@@ -30,6 +30,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from . import files
+from .attributes import AttributeDatatype, BaseAttribute, BaseAttributeType
 from .audit import get_current_user
 
 USER = settings.AUTH_USER_MODEL
@@ -177,13 +178,6 @@ class EvalMethod(models.TextChoices):
     AI = "ai", "AI"
     TEACHER = "teacher", "Teacher"
 
-
-class NationalIdType(models.TextChoices):
-    """Which document a student's national_id came from."""
-
-    CNIC = "cnic", "CNIC"
-    B_FORM = "b_form", "B-Form"
-    PASSPORT = "passport", "Passport"
 
 
 class HandoutKind(models.TextChoices):
@@ -436,15 +430,15 @@ class AppUser(AbstractUser, AuditModel):
 # ---------------------------------------------------------------------
 # People & placement
 # ---------------------------------------------------------------------
-class Grade(AuditModel):
-    """Grade and class are one entity: one class per grade."""
+class AcademyClass(AuditModel):
+    """AcademyClass and class are one entity: one class per grade level."""
 
     level = models.IntegerField()
     short_name = models.CharField(max_length=32)
     full_name = models.CharField(max_length=128)
     id_number = models.CharField(max_length=64, null=True, blank=True)
     is_terminal = models.BooleanField(
-        default=False, help_text="The grade where subjects differ per student."
+        default=False, help_text="The class where subjects differ per student."
     )
     room = models.CharField(max_length=64, null=True, blank=True)
     capacity = models.PositiveIntegerField(null=True, blank=True)
@@ -452,11 +446,11 @@ class Grade(AuditModel):
     visible = models.BooleanField(default=True)
 
     class Meta(AuditModel.Meta):
-        db_table = "grade"
+        db_table = "academy_class"
         ordering = ["sort_order", "level"]
         constraints = [
-            unique_active(["level"], "grade_level_uix"),
-            unique_active(["short_name"], "grade_short_name_uix"),
+            unique_active(["level"], "academy_class_level_uix"),
+            unique_active(["short_name"], "academy_class_short_name_uix"),
         ]
 
     def __str__(self):
@@ -506,18 +500,8 @@ class Student(AuditModel):
                   "Unique — no two students may share one. Optional at "
                   "admission; required before an exam entry.",
     )
-    national_id_type = models.CharField(
-        max_length=16, choices=NationalIdType.choices, blank=True, default="",
-        help_text="Which document national_id came from.",
-    )
-
     guardian_name = models.CharField(max_length=128, null=True, blank=True)
     guardian_contact = models.CharField(max_length=128, null=True, blank=True)
-    guardian_contact_2 = models.CharField(
-        max_length=128, blank=True, default="",
-        help_text="A second number for the guardian. Cambridge asks for two "
-                  "for candidates under 18.",
-    )
     photo = models.ImageField(
         upload_to=files.person_photo_path, null=True, blank=True,
         max_length=256, validators=[files.validate_person_photo],
@@ -561,7 +545,7 @@ class Student(AuditModel):
         {subject id: record} — one record per subject ever taken.
 
         A subject taken more than once (repeated, or continued into the
-        next grade) keeps the record worth showing: the year in progress
+        next class) keeps the record worth showing: the year in progress
         if there is one, otherwise the most recent finished year. Each
         record carries the StudentSubject row itself, so the caller can
         read its topic results without going back to the database.
@@ -604,6 +588,37 @@ class Student(AuditModel):
         }
 
 
+class StudentAttributeType(AuditModel, BaseAttributeType):
+    """
+    Names one typed property a Student may carry beyond the core columns.
+
+    Replaces fields like national_id_type and guardian_contact_2 that
+    varied by document type or by school policy: adding one of these from
+    now on is a data change (a new row here), not a migration.
+    """
+
+    class Meta(AuditModel.Meta):
+        db_table = "student_attribute_type"
+        constraints = [unique_active(["short_name"], "student_attribute_type_key_uix")]
+        ordering = ["sort_order", "name"]
+
+
+class StudentAttribute(AuditModel, BaseAttribute):
+    student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name="attributes")
+    attribute_type = models.ForeignKey(
+        StudentAttributeType, on_delete=models.PROTECT, related_name="+"
+    )
+
+    class Meta(AuditModel.Meta):
+        db_table = "student_attribute"
+        constraints = [
+            unique_active(["student", "attribute_type"], "student_attribute_key_uix")
+        ]
+
+    def __str__(self):
+        return f"{self.student} → {self.attribute_type.name} = {self.value_reference}"
+
+
 class Teacher(AuditModel):
     user = models.OneToOneField(
         USER, on_delete=models.PROTECT, related_name="teacher_profile"
@@ -627,10 +642,10 @@ class Teacher(AuditModel):
 
 
 class Enrolment(AuditModel):
-    """One grade per student per year — the 'one grade at a time' rule."""
+    """One class per student per year — the 'one class at a time' rule."""
 
     student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name="enrolments")
-    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, related_name="enrolments")
+    academy_class = models.ForeignKey(AcademyClass, on_delete=models.PROTECT, related_name="enrolments")
     academic_year = models.IntegerField(
         validators=[MinValueValidator(2000), MaxValueValidator(2100)]
     )
@@ -640,16 +655,16 @@ class Enrolment(AuditModel):
 
     class Meta(AuditModel.Meta):
         db_table = "enrolment"
-        ordering = ["-academic_year", "grade"]
-        indexes = [models.Index(fields=["grade", "academic_year"])]
+        ordering = ["-academic_year", "academy_class"]
+        indexes = [models.Index(fields=["academy_class", "academic_year"])]
         constraints = [
             unique_active(
-                ["student", "academic_year"], "enrolment_one_grade_per_year_uix"
+                ["student", "academic_year"], "enrolment_one_academy_class_per_year_uix"
             ),
         ]
 
     def __str__(self):
-        return f"{self.student} · {self.grade} · {self.academic_year}"
+        return f"{self.student} · {self.academy_class} · {self.academic_year}"
 
 
 # ---------------------------------------------------------------------
@@ -832,14 +847,14 @@ class Topic(AuditModel):
 
 
 class Syllabus(AuditModel):
-    """One subject taught to one grade in one year, and its topic cohort."""
+    """One subject taught to one class in one year, and its topic cohort."""
 
     subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name="syllabi")
-    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, related_name="syllabi")
+    academy_class = models.ForeignKey(AcademyClass, on_delete=models.PROTECT, related_name="syllabi")
     academic_year = models.IntegerField()
     full_name = models.CharField(max_length=256, null=True, blank=True)
     is_core = models.BooleanField(
-        default=True, help_text="Core subjects are taken by every student in the grade."
+        default=True, help_text="Core subjects are taken by every student in the class."
     )
     status = models.CharField(
         max_length=16, choices=SyllabusStatus.choices, default=SyllabusStatus.DRAFT
@@ -858,16 +873,16 @@ class Syllabus(AuditModel):
     class Meta(AuditModel.Meta):
         db_table = "syllabus"
         verbose_name_plural = "syllabi"
-        ordering = ["-academic_year", "grade", "subject"]
+        ordering = ["-academic_year", "academy_class", "subject"]
         constraints = [
             unique_active(
-                ["subject", "grade", "academic_year"],
-                "syllabus_subject_grade_year_uix",
+                ["subject", "academy_class", "academic_year"],
+                "syllabus_subject_academy_class_year_uix",
             )
         ]
 
     def __str__(self):
-        return f"{self.subject.short_name} · {self.grade.short_name} · {self.academic_year}"
+        return f"{self.subject.short_name} · {self.academy_class.short_name} · {self.academic_year}"
 
     def assessable_sections(self):
         """
@@ -934,7 +949,7 @@ class SyllabusTopic(AuditModel):
 
 
 class StudentSubject(AuditModel):
-    """Auto-filled from core syllabi; genuinely chosen in the terminal grade."""
+    """Auto-filled from core syllabi; genuinely chosen in the terminal class."""
 
     enrolment = models.ForeignKey(Enrolment, on_delete=models.PROTECT, related_name="subjects")
     syllabus = models.ForeignKey(Syllabus, on_delete=models.PROTECT, related_name="students")
@@ -989,7 +1004,7 @@ class TopicResult(AuditModel):
     Where one student stands on one topic of one subject in one year.
 
     This is the row the knowledge map reads. It hangs off StudentSubject
-    rather than off the student, so a topic taken again in a later grade
+    rather than off the student, so a topic taken again in a later class
     is a separate result and the earlier one stays as it was recorded.
 
     `score_pct` is the mark out of a hundred. Whether that is a pass is
@@ -1211,52 +1226,42 @@ class Question(AuditModel):
         return self.name
 
 
-class BinaryConfig(AuditModel):
-    question = models.OneToOneField(
-        Question, on_delete=models.PROTECT, primary_key=True, related_name="binary_config"
+class QuestionAttributeType(AuditModel, BaseAttributeType):
+    """
+    Names one typed property a Question of some type may carry.
+
+    Replaces the old BinaryConfig/NumericConfig subtype tables: instead of
+    one bespoke table per question_type's shape, each question_type's
+    fields (expected_value, tolerance, true_label, and so on) are attribute
+    types filtered by `applies_to`, and a new question_type's fields are
+    rows here rather than a new table and migration.
+    """
+
+    applies_to = models.CharField(
+        max_length=16, choices=QuestionType.choices, null=True, blank=True,
+        help_text="Which question_type this applies to. Empty applies to any type.",
     )
-    expected_value = models.BooleanField()
-    true_label = models.CharField(max_length=64, default="True")
-    false_label = models.CharField(max_length=64, default="False")
-    true_feedback = models.TextField(null=True, blank=True)
-    false_feedback = models.TextField(null=True, blank=True)
 
     class Meta(AuditModel.Meta):
-        db_table = "binary_config"
+        db_table = "question_attribute_type"
+        constraints = [unique_active(["short_name"], "question_attribute_type_key_uix")]
+        ordering = ["sort_order", "name"]
 
-    def __str__(self):
-        return f"{self.question} → {self.expected_value}"
 
-
-class NumericConfig(AuditModel):
-    question = models.OneToOneField(
-        Question, on_delete=models.PROTECT, primary_key=True, related_name="numeric_config"
+class QuestionAttribute(AuditModel, BaseAttribute):
+    question = models.ForeignKey(Question, on_delete=models.PROTECT, related_name="attributes")
+    attribute_type = models.ForeignKey(
+        QuestionAttributeType, on_delete=models.PROTECT, related_name="+"
     )
-    expected_value = models.DecimalField(max_digits=18, decimal_places=6)
-    tolerance_type = models.CharField(
-        max_length=16, choices=ToleranceType.choices, default=ToleranceType.ABSOLUTE
-    )
-    tolerance = models.DecimalField(
-        max_digits=18, decimal_places=6, default=0, validators=[MinValueValidator(0)]
-    )
-    partial_band = models.DecimalField(
-        max_digits=18, decimal_places=6, null=True, blank=True,
-        validators=[MinValueValidator(0)],
-        help_text="Wider band outside tolerance earning partial_fraction of the mark.",
-    )
-    partial_fraction = models.DecimalField(
-        max_digits=4, decimal_places=3, null=True, blank=True,
-        validators=[MinValueValidator(0), MaxValueValidator(1)],
-    )
-    unit = models.CharField(max_length=32, null=True, blank=True)
-    unit_penalty = models.DecimalField(max_digits=4, decimal_places=3, default=0)
-    significant_figures = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta(AuditModel.Meta):
-        db_table = "numeric_config"
+        db_table = "question_attribute"
+        constraints = [
+            unique_active(["question", "attribute_type"], "question_attribute_key_uix")
+        ]
 
     def __str__(self):
-        return f"{self.question} → {self.expected_value} ± {self.tolerance}"
+        return f"{self.question} → {self.attribute_type.name} = {self.value_reference}"
 
 
 # ---------------------------------------------------------------------
@@ -1266,7 +1271,7 @@ class QuestionPaper(AuditModel):
     """Stable identity only. It holds no questions; its versions do."""
 
     subject = models.ForeignKey(Subject, on_delete=models.PROTECT, related_name="papers")
-    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, related_name="papers")
+    academy_class = models.ForeignKey(AcademyClass, on_delete=models.PROTECT, related_name="papers")
     name = models.CharField(max_length=256)
     id_number = models.CharField(max_length=64, null=True, blank=True)
     intro = models.TextField(null=True, blank=True)
@@ -1283,10 +1288,10 @@ class QuestionPaper(AuditModel):
 
     class Meta(AuditModel.Meta):
         db_table = "question_paper"
-        ordering = ["subject", "grade", "name"]
+        ordering = ["subject", "academy_class", "name"]
 
     def __str__(self):
-        return f"{self.name} ({self.subject.short_name} · {self.grade.short_name})"
+        return f"{self.name} ({self.subject.short_name} · {self.academy_class.short_name})"
 
 
 class PaperVersion(AuditModel):
@@ -1406,14 +1411,14 @@ class PaperItem(AuditModel):
 
 
 class StudentCohort(AuditModel):
-    """A group of students inside one grade — never across grades."""
+    """A group of students inside one class — never across classes."""
 
     name = models.CharField(max_length=128)
     id_number = models.CharField(max_length=64, null=True, blank=True)
     purpose = models.CharField(
         max_length=16, choices=CohortPurpose.choices, default=CohortPurpose.OTHER
     )
-    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, related_name="cohorts")
+    academy_class = models.ForeignKey(AcademyClass, on_delete=models.PROTECT, related_name="cohorts")
     academic_year = models.IntegerField()
     is_temporary = models.BooleanField(default=True)
     starts_on = models.DateField(null=True, blank=True)
@@ -1421,15 +1426,15 @@ class StudentCohort(AuditModel):
 
     class Meta(AuditModel.Meta):
         db_table = "student_cohort"
-        ordering = ["-academic_year", "grade", "name"]
+        ordering = ["-academic_year", "academy_class", "name"]
         constraints = [
             unique_active(
-                ["grade", "academic_year", "name"], "student_cohort_name_uix"
+                ["academy_class", "academic_year", "name"], "student_cohort_name_uix"
             )
         ]
 
     def __str__(self):
-        return f"{self.name} ({self.grade.short_name} · {self.academic_year})"
+        return f"{self.name} ({self.academy_class.short_name} · {self.academic_year})"
 
 
 class CohortMembership(AuditModel):
@@ -1453,16 +1458,16 @@ class CohortMembership(AuditModel):
 
 
 class PaperAssignment(AuditModel):
-    """Issues a locked version to a grade, or to one cohort inside it."""
+    """Issues a locked version to a class, or to one cohort inside it."""
 
     paper_version = models.ForeignKey(
         PaperVersion, on_delete=models.PROTECT, related_name="assignments"
     )
-    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, related_name="assignments")
+    academy_class = models.ForeignKey(AcademyClass, on_delete=models.PROTECT, related_name="assignments")
     academic_year = models.IntegerField()
     student_cohort = models.ForeignKey(
         StudentCohort, on_delete=models.PROTECT, null=True, blank=True,
-        related_name="assignments", help_text="Null = the whole grade.",
+        related_name="assignments", help_text="Null = the whole class.",
     )
     assigned_by = models.ForeignKey(
         USER, on_delete=models.PROTECT, null=True, blank=True, related_name="assignments_made"
@@ -1485,7 +1490,7 @@ class PaperAssignment(AuditModel):
         ordering = ["-time_open", "id"]
 
     def __str__(self):
-        target = self.student_cohort.name if self.student_cohort_id else self.grade.short_name
+        target = self.student_cohort.name if self.student_cohort_id else self.academy_class.short_name
         return f"{self.paper_version} → {target}"
 
 
@@ -1703,14 +1708,14 @@ class AttendanceStatus(models.TextChoices):
 
 class AttendanceSession(AuditModel):
     """
-    One register: a grade, on a date, for a period.
+    One register: a class, on a date, for a period.
 
     `syllabus` is optional. Leave it empty for a day or homeroom register;
     set it to take attendance for one subject's lesson, which is what a
     teacher marking their own class needs.
     """
 
-    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, related_name="attendance_sessions")
+    academy_class = models.ForeignKey(AcademyClass, on_delete=models.PROTECT, related_name="attendance_sessions")
     academic_year = models.IntegerField()
     date = models.DateField(default=timezone.localdate)
     period = models.CharField(
@@ -1745,17 +1750,17 @@ class AttendanceSession(AuditModel):
     class Meta(AuditModel.Meta):
         db_table = "attendance_session"
         ordering = ["-date", "period"]
-        indexes = [models.Index(fields=["grade", "date"]), models.Index(fields=["academic_year"])]
+        indexes = [models.Index(fields=["academy_class", "date"]), models.Index(fields=["academic_year"])]
         constraints = [
             unique_active(
-                ["grade", "academic_year", "date", "period", "syllabus_key"],
+                ["academy_class", "academic_year", "date", "period", "syllabus_key"],
                 "attendance_session_uix",
             )
         ]
 
     def __str__(self):
         subject = f" · {self.syllabus.subject.short_name}" if self.syllabus_id else ""
-        return f"{self.grade.short_name} · {self.date}{subject} ({self.period})"
+        return f"{self.academy_class.short_name} · {self.date}{subject} ({self.period})"
 
     @property
     def summary(self):
@@ -1806,7 +1811,7 @@ class AttendanceRecord(AuditModel):
 # ---------------------------------------------------------------------
 class TimetableSlot(AuditModel):
     """
-    The weekly pattern: one subject, one grade, one day, one period.
+    The weekly pattern: one subject, one class, one day, one period.
 
     Set once and changed rarely. It is a template, not a record of what
     happened — the lesson actually taught is a `Lesson`, created from this
@@ -1819,7 +1824,7 @@ class TimetableSlot(AuditModel):
 
     syllabus = models.ForeignKey(
         Syllabus, on_delete=models.PROTECT, related_name="timetable_slots",
-        help_text="The subject, grade and year this slot teaches.",
+        help_text="The subject, class and year this slot teaches.",
     )
     teacher = models.ForeignKey(
         Teacher, on_delete=models.PROTECT, null=True, blank=True,
@@ -2212,7 +2217,7 @@ class Handout(AuditModel):
     )
     code = models.CharField(
         max_length=64, editable=False,
-        help_text="Set on first save: subject, grade, year and a running "
+        help_text="Set on first save: subject, class, year and a running "
                   "number, e.g. ENG-E1-2026-H007. Printed on the sheet and "
                   "quoted by every submission.",
     )
@@ -2326,11 +2331,11 @@ class Handout(AuditModel):
         return super().save(*args, **kwargs)
 
     def _next_code(self):
-        """`<SUBJECT>-<GRADE>-<YEAR>-H<nnn>`, counting within the syllabus."""
+        """`<SUBJECT>-<CLASS>-<YEAR>-H<nnn>`, counting within the syllabus."""
         syllabus = self.syllabus
         prefix = "{}-{}-{}-H".format(
             syllabus.subject.short_name,
-            syllabus.grade.short_name,
+            syllabus.academy_class.short_name,
             syllabus.academic_year,
         )
         taken = (
@@ -2549,9 +2554,9 @@ class Handout(AuditModel):
         ]
 
     def enrolments(self):
-        """Everyone the handout is for: the grade's live enrolments this year."""
+        """Everyone the handout is for: the class's live enrolments this year."""
         return Enrolment.objects.filter(
-            grade=self.syllabus.grade,
+            academy_class=self.syllabus.academy_class,
             academic_year=self.syllabus.academic_year,
             voided=False,
         ).select_related("student")
@@ -2695,7 +2700,7 @@ class Submission(AuditModel):
     handout = models.ForeignKey(Handout, on_delete=models.PROTECT, related_name="submissions")
     enrolment = models.ForeignKey(
         Enrolment, on_delete=models.PROTECT, related_name="submissions",
-        help_text="Whose work, and in which grade and year — so the record "
+        help_text="Whose work, and in which class and year — so the record "
                   "stays true after they move up.",
     )
     code = models.CharField(
@@ -3231,7 +3236,7 @@ class Notice(AuditModel):
     they look at it. The structured route exists for anything that does
     need querying.
 
-    An empty `grade` means every class sees it.
+    An empty `academy_class` means every class sees it.
     """
 
     title = models.CharField(max_length=256)
@@ -3239,8 +3244,8 @@ class Notice(AuditModel):
         max_length=24, choices=NoticeCategory.choices,
         default=NoticeCategory.GENERAL,
     )
-    grade = models.ForeignKey(
-        Grade, on_delete=models.PROTECT, null=True, blank=True,
+    academy_class = models.ForeignKey(
+        AcademyClass, on_delete=models.PROTECT, null=True, blank=True,
         related_name="notices",
         help_text="Which class it is for. Empty means all classes.",
     )
@@ -3274,7 +3279,7 @@ class Notice(AuditModel):
         ordering = ["-date_posted"]
         indexes = [
             models.Index(fields=["category"], name="notice_categor_idx"),
-            models.Index(fields=["grade", "academic_year"], name="notice_grade_year_idx"),
+            models.Index(fields=["academy_class", "academic_year"], name="notice_academy_class_year_idx"),
         ]
 
     def __str__(self):

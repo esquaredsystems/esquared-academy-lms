@@ -6,7 +6,7 @@ Everything here is fictional. Rows are tagged with a DEMO- prefix in their
 remove them — voiding, never deleting, like everything else in the system.
 
 Placement follows the school's own rule: E1 through S2 take the whole core
-set for their grade, and only S3 students choose. Each S3 student below
+set for their class, and only S3 students choose. Each S3 student below
 takes the five core subjects plus the electives listed against them.
 """
 
@@ -73,61 +73,61 @@ TEACHERS = [
 
 
 # ---------------------------------------------------------------------
-# Students, four per grade. `electives` applies only in S3, the terminal
-# grade; it is ignored anywhere else, where everyone takes the core set.
+# Students, four per class. `electives` applies only in S3, the terminal
+# class; it is ignored anywhere else, where everyone takes the core set.
 # ---------------------------------------------------------------------
 STUDENTS = [
     # E1
     {"admission_no": f"{PREFIX}S01", "first_name": "Zoya", "last_name": "Kazmi",
-     "grade": "E1", "guardian_name": "Adnan Kazmi"},
+     "academy_class": "E1", "guardian_name": "Adnan Kazmi"},
     {"admission_no": f"{PREFIX}S02", "first_name": "Hamza", "last_name": "Memon",
-     "grade": "E1", "guardian_name": "Rehana Memon"},
+     "academy_class": "E1", "guardian_name": "Rehana Memon"},
     {"admission_no": f"{PREFIX}S03", "first_name": "Alishba", "last_name": "Rizvi",
-     "grade": "E1", "guardian_name": "Sarwar Rizvi"},
+     "academy_class": "E1", "guardian_name": "Sarwar Rizvi"},
     {"admission_no": f"{PREFIX}S04", "first_name": "Ahmed", "last_name": "Sheikh",
-     "grade": "E1", "guardian_name": "Nadia Sheikh"},
+     "academy_class": "E1", "guardian_name": "Nadia Sheikh"},
 
     # E2
     {"admission_no": f"{PREFIX}S05", "first_name": "Fatima", "last_name": "Jafri",
-     "grade": "E2", "guardian_name": "Kashif Jafri"},
+     "academy_class": "E2", "guardian_name": "Kashif Jafri"},
     {"admission_no": f"{PREFIX}S06", "first_name": "Bilal", "last_name": "Abbasi",
-     "grade": "E2", "guardian_name": "Shazia Abbasi"},
+     "academy_class": "E2", "guardian_name": "Shazia Abbasi"},
     {"admission_no": f"{PREFIX}S07", "first_name": "Mahnoor", "last_name": "Baloch",
-     "grade": "E2", "guardian_name": "Yousuf Baloch"},
+     "academy_class": "E2", "guardian_name": "Yousuf Baloch"},
     {"admission_no": f"{PREFIX}S08", "first_name": "Talha", "last_name": "Farooqui",
-     "grade": "E2", "guardian_name": "Ambreen Farooqui"},
+     "academy_class": "E2", "guardian_name": "Ambreen Farooqui"},
 
     # S1
     {"admission_no": f"{PREFIX}S09", "first_name": "Ayesha", "last_name": "Hashmi",
-     "grade": "S1", "guardian_name": "Tariq Hashmi"},
+     "academy_class": "S1", "guardian_name": "Tariq Hashmi"},
     {"admission_no": f"{PREFIX}S10", "first_name": "Saad", "last_name": "Zuberi",
-     "grade": "S1", "guardian_name": "Farzana Zuberi"},
+     "academy_class": "S1", "guardian_name": "Farzana Zuberi"},
     {"admission_no": f"{PREFIX}S11", "first_name": "Hina", "last_name": "Lakhani",
-     "grade": "S1", "guardian_name": "Aslam Lakhani"},
+     "academy_class": "S1", "guardian_name": "Aslam Lakhani"},
     {"admission_no": f"{PREFIX}S12", "first_name": "Danish", "last_name": "Soomro",
-     "grade": "S1", "guardian_name": "Rubina Soomro"},
+     "academy_class": "S1", "guardian_name": "Rubina Soomro"},
 
     # S2
     {"admission_no": f"{PREFIX}S13", "first_name": "Sana", "last_name": "Ghouri",
-     "grade": "S2", "guardian_name": "Javed Ghouri"},
+     "academy_class": "S2", "guardian_name": "Javed Ghouri"},
     {"admission_no": f"{PREFIX}S14", "first_name": "Owais", "last_name": "Tirmizi",
-     "grade": "S2", "guardian_name": "Sadia Tirmizi"},
+     "academy_class": "S2", "guardian_name": "Sadia Tirmizi"},
     {"admission_no": f"{PREFIX}S15", "first_name": "Areeba", "last_name": "Naqvi",
-     "grade": "S2", "guardian_name": "Mohsin Naqvi"},
+     "academy_class": "S2", "guardian_name": "Mohsin Naqvi"},
     {"admission_no": f"{PREFIX}S16", "first_name": "Rayyan", "last_name": "Dossani",
-     "grade": "S2", "guardian_name": "Nasreen Dossani"},
+     "academy_class": "S2", "guardian_name": "Nasreen Dossani"},
 
-    # S3 — the terminal grade, where subjects differ per student
+    # S3 — the terminal class, where subjects differ per student
     {"admission_no": f"{PREFIX}S17", "first_name": "Kiran", "last_name": "Merchant",
-     "grade": "S3", "guardian_name": "Iqbal Merchant",
+     "academy_class": "S3", "guardian_name": "Iqbal Merchant",
      "electives": ["PHY", "CHEM", "BIO"]},                 # pre-medical
     {"admission_no": f"{PREFIX}S18", "first_name": "Zain", "last_name": "Kapadia",
-     "grade": "S3", "guardian_name": "Samina Kapadia",
+     "academy_class": "S3", "guardian_name": "Samina Kapadia",
      "electives": ["PHY", "CHEM", "AMATH", "CS"]},         # pre-engineering
     {"admission_no": f"{PREFIX}S19", "first_name": "Maryam", "last_name": "Alvi",
-     "grade": "S3", "guardian_name": "Faisal Alvi",
+     "academy_class": "S3", "guardian_name": "Faisal Alvi",
      "electives": ["BUS", "ACC", "ECON"]},                 # commerce
     {"admission_no": f"{PREFIX}S20", "first_name": "Shahmir", "last_name": "Vohra",
-     "grade": "S3", "guardian_name": "Uzma Vohra",
+     "academy_class": "S3", "guardian_name": "Uzma Vohra",
      "electives": ["GEO", "HIST", "ART", "CS"]},           # humanities
 ]

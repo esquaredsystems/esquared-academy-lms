@@ -28,9 +28,9 @@ from django.test import Client
 from app import models
 call_command("seed_roles", verbosity=0)
 
-g = models.Grade.objects.create(short_name="S1", full_name="Senior 1", level=3, sort_order=3)
+g = models.AcademyClass.objects.create(short_name="S1", full_name="Senior 1", level=3, sort_order=3)
 sub = models.Subject.objects.create(short_name="ENG", full_name="English")
-syl = models.Syllabus.objects.create(subject=sub, grade=g, academic_year=2627)
+syl = models.Syllabus.objects.create(subject=sub, academy_class=g, academic_year=2627)
 
 # Me
 u = models.AppUser.objects.create_user(username="26070108", password="x", is_staff=True)
@@ -39,13 +39,13 @@ me = models.Student.objects.create(admission_no="26070108", first_name="Aariz",
                                    last_name="Tunia", national_id="11111-1111111-1",
                                    guardian_name="MyParent", address="My house")
 me.user = u; me.save()
-en_me = models.Enrolment.objects.create(student=me, grade=g, academic_year=2627)
+en_me = models.Enrolment.objects.create(student=me, academy_class=g, academic_year=2627)
 
 # Another child, whose data must never appear
 other = models.Student.objects.create(admission_no="26070109", first_name="Abbas",
                                       last_name="Abid", national_id="99999-9999999-9",
                                       guardian_name="OtherParent", address="Their house")
-en_other = models.Enrolment.objects.create(student=other, grade=g, academic_year=2627)
+en_other = models.Enrolment.objects.create(student=other, academy_class=g, academic_year=2627)
 
 h = models.Handout.objects.create(syllabus=syl, title="Sheet 1", is_assignment=True,
                                   status=models.HandoutStatus.ACTIVE)
@@ -57,7 +57,7 @@ models.MarkLine.objects.create(submission=s_other, label="Q1", out_of=10, awarde
 
 # A teacher, who must still see everything
 t = models.AppUser.objects.create_user(username="uxair.ahm", password="x", is_staff=True)
-t.groups.add(Group.objects.get(name="Teaching Staff"))
+t.groups.add(Group.objects.get(name="Teacher"))
 models.Teacher.objects.create(staff_no="T-001", user=t)
 
 SECRETS = {

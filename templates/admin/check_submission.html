@@ -83,7 +83,7 @@
 <div class="cs-head">
   <h1>{{ student.full_name }}</h1>
   <div class="sub">
-    {{ student.admission_no }} · {{ handout.syllabus.grade }} ·
+    {{ student.admission_no }} · {{ handout.syllabus.academy_class }} ·
     {{ handout.code }} — {{ handout.topic_text|default:handout.title }} ·
     handed in {{ submission.time_submitted|date:"j M, H:i" }}
     {% if submission.is_late %}<span class="pill late">Late</span>{% endif %}

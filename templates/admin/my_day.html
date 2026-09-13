@@ -319,7 +319,7 @@
       {% for row in today_rows %}
         <a href="#lesson-{{ row.lesson.pk }}" class="{{ row.timer_state }}{% if row.finished %} done{% endif %}">
           <b>P{{ row.lesson.period }}</b>
-          <span>{{ row.subject.short_name }} · {{ row.grade.short_name }}</span>
+          <span>{{ row.subject.short_name }} · {{ row.academy_class.short_name }}</span>
           {% if row.finished %}<em>logged</em>
           {% elif row.timer_state == "running" %}<em class="on">running</em>
           {% elif row.needs_log %}<em class="todo">to log</em>{% endif %}
@@ -338,7 +338,7 @@
           {% if row.needs_log %}<span class="tag todo">Not logged</span>{% endif %}
         </h3>
         <p class="where">
-          {{ row.subject }} · {{ row.grade }}
+          {{ row.subject }} · {{ row.academy_class }}
           <button type="button" class="fold" hidden>Show</button>
         </p>
 
@@ -785,7 +785,7 @@
             <a href="{{ row.url }}">{{ row.lesson.title|default:row.subject }}</a>
             <span class="tag {{ row.lesson.status }}">{{ row.lesson.get_status_display }}</span>
           </h3>
-          <p class="where">{{ row.subject }} · {{ row.grade }} · {{ row.lesson.date|date:"j F" }}</p>
+          <p class="where">{{ row.subject }} · {{ row.academy_class }} · {{ row.lesson.date|date:"j F" }}</p>
           {% if row.needs_plan %}
             <div class="actions"><a class="ghost" href="{{ row.url }}">Add a plan</a></div>
           {% endif %}
@@ -805,7 +805,7 @@
           {% if row.needs_log %}<span class="tag todo">Not logged</span>{% endif %}
           {% if row.needs_plan %}<span class="tag todo">No plan</span>{% endif %}
         </h3>
-        <p class="where">{{ row.subject }} · {{ row.grade }} · {{ row.lesson.date|date:"l j F" }}</p>
+        <p class="where">{{ row.subject }} · {{ row.academy_class }} · {{ row.lesson.date|date:"l j F" }}</p>
         {% if row.returned and row.lesson.review_comment %}
           <p class="topics"><b>Sent back:</b> {{ row.lesson.review_comment }}</p>
         {% endif %}

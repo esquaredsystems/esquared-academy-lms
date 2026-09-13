@@ -35,7 +35,7 @@
 <div class="nb-head">
   <h1>Notice board</h1>
   <div class="sub">
-    {% if student %}{{ student.full_name }}{% if enrolment %} · {{ enrolment.grade }}{% endif %}{% endif %}
+    {% if student %}{{ student.full_name }}{% if enrolment %} · {{ enrolment.academy_class }}{% endif %}{% endif %}
   </div>
 </div>
 
@@ -67,7 +67,7 @@
   <div class="card">
     <h3>{{ r.notice.title }}<span class="pill exam">Timetable</span></h3>
     <p class="where">
-      {% if r.notice.grade %}{{ r.notice.grade }}{% else %}All classes{% endif %}
+      {% if r.notice.academy_class %}{{ r.notice.academy_class }}{% else %}All classes{% endif %}
       · posted {{ r.notice.date_posted|date:"j M Y" }}
       {% if r.notice.posted_by %} by {{ r.notice.posted_by.get_full_name|default:r.notice.posted_by.username }}{% endif %}
     </p>
@@ -93,7 +93,7 @@
   <div class="card">
     <h3>{{ r.notice.title }}<span class="pill exam">Syllabus</span></h3>
     <p class="where">
-      {% if r.notice.grade %}{{ r.notice.grade }}{% else %}All classes{% endif %}
+      {% if r.notice.academy_class %}{{ r.notice.academy_class }}{% else %}All classes{% endif %}
       · posted {{ r.notice.date_posted|date:"j M Y" }}
     </p>
     {% if r.notice.body %}<p class="body">{{ r.notice.body }}</p>{% endif %}
@@ -119,7 +119,7 @@
     <div class="card">
       <h3>{{ r.notice.title }}</h3>
       <p class="where">
-        {% if r.notice.grade %}{{ r.notice.grade }}{% else %}All classes{% endif %}
+        {% if r.notice.academy_class %}{{ r.notice.academy_class }}{% else %}All classes{% endif %}
         · {{ r.notice.date_posted|date:"j M Y" }}
       </p>
       {% if r.notice.body %}<p class="body">{{ r.notice.body }}</p>{% endif %}

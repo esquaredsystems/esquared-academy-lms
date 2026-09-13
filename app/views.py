@@ -117,10 +117,10 @@ class AppUserViewSet(AuditedModelViewSet):
     ordering_fields = ["username", "last_name", "date_joined"]
 
 
-class GradeViewSet(AuditedModelViewSet):
-    """Grades — which in this school are also the classes."""
+class AcademyClassViewSet(AuditedModelViewSet):
+    """Classes."""
 
-    serializer_class = serializers.GradeSerializer
+    serializer_class = serializers.AcademyClassSerializer
     filterset_fields = ["is_terminal", "visible", "level"]
     search_fields = ["short_name", "full_name", "id_number"]
     ordering_fields = ["sort_order", "level", "short_name"]
@@ -142,6 +142,22 @@ class StudentViewSet(AuditedModelViewSet):
         return Response(serializers.EnrolmentSerializer(qs, many=True).data)
 
 
+class StudentAttributeTypeViewSet(AuditedModelViewSet):
+    """The catalogue of optional properties a Student can carry."""
+
+    serializer_class = serializers.StudentAttributeTypeSerializer
+    filterset_fields = ["datatype", "visible"]
+    search_fields = ["name", "short_name", "description"]
+    ordering_fields = ["sort_order", "name"]
+
+
+class StudentAttributeViewSet(AuditedModelViewSet):
+    """One Student's value for one StudentAttributeType."""
+
+    serializer_class = serializers.StudentAttributeSerializer
+    filterset_fields = ["student", "attribute_type"]
+
+
 class TeacherViewSet(AuditedModelViewSet):
     """Teaching staff. One account per teacher."""
 
@@ -150,10 +166,10 @@ class TeacherViewSet(AuditedModelViewSet):
 
 
 class EnrolmentViewSet(AuditedModelViewSet):
-    """A student in one grade for one year. One per student per year."""
+    """A student in one class for one year. One per student per year."""
 
     serializer_class = serializers.EnrolmentSerializer
-    filterset_fields = ["student", "grade", "academic_year", "status"]
+    filterset_fields = ["student", "academy_class", "academic_year", "status"]
     ordering_fields = ["academic_year", "started_on"]
 
 
@@ -286,10 +302,10 @@ class TopicViewSet(AuditedModelViewSet):
 
 
 class SyllabusViewSet(AuditedModelViewSet):
-    """One subject, one grade, one year — and that year's topic list."""
+    """One subject, one class, one year — and that year's topic list."""
 
     serializer_class = serializers.SyllabusSerializer
-    filterset_fields = ["subject", "grade", "academic_year", "status", "is_core"]
+    filterset_fields = ["subject", "academy_class", "academic_year", "status", "is_core"]
     ordering_fields = ["academic_year"]
 
     @extend_schema(
@@ -465,7 +481,7 @@ class SubmissionViewSet(AuditedModelViewSet):
 
 
 class StudentSubjectViewSet(AuditedModelViewSet):
-    """A student's subjects: automatic for core syllabi, chosen in the terminal grade."""
+    """A student's subjects: automatic for core syllabi, chosen in the terminal class."""
 
     serializer_class = serializers.StudentSubjectSerializer
     filterset_fields = ["enrolment", "syllabus"]
@@ -549,21 +565,20 @@ class QuestionViewSet(AuditedModelViewSet):
         return Response(serializers.QuestionSerializer(qs, many=True).data)
 
 
-class BinaryConfigViewSet(AuditedModelViewSet):
-    """Answer key for true/false questions. All or nothing."""
+class QuestionAttributeTypeViewSet(AuditedModelViewSet):
+    """The catalogue of optional properties a Question can carry, by question_type."""
 
-    # These tables are keyed by their question, not by a separate id.
-    lookup_field = "question_id"
-    serializer_class = serializers.BinaryConfigSerializer
-    filterset_fields = ["expected_value"]
+    serializer_class = serializers.QuestionAttributeTypeSerializer
+    filterset_fields = ["datatype", "applies_to", "visible"]
+    search_fields = ["name", "short_name", "description"]
+    ordering_fields = ["sort_order", "name"]
 
 
-class NumericConfigViewSet(AuditedModelViewSet):
-    """Answer key for numeric questions, with the tolerance that counts as correct."""
+class QuestionAttributeViewSet(AuditedModelViewSet):
+    """One Question's value for one QuestionAttributeType."""
 
-    lookup_field = "question_id"
-    serializer_class = serializers.NumericConfigSerializer
-    filterset_fields = ["tolerance_type", "unit"]
+    serializer_class = serializers.QuestionAttributeSerializer
+    filterset_fields = ["question", "attribute_type"]
 
 
 # ---------------------------------------------------------------------
@@ -573,7 +588,7 @@ class QuestionPaperViewSet(AuditedModelViewSet):
     """The paper's stable identity. Its questions live on its versions."""
 
     serializer_class = serializers.QuestionPaperSerializer
-    filterset_fields = ["subject", "grade", "purpose"]
+    filterset_fields = ["subject", "academy_class", "purpose"]
     search_fields = ["name", "id_number"]
 
 
@@ -649,10 +664,10 @@ class PaperItemViewSet(AuditedModelViewSet):
 
 
 class StudentCohortViewSet(AuditedModelViewSet):
-    """A group of students inside one grade — activity, interest, remedial."""
+    """A group of students inside one class — activity, interest, remedial."""
 
     serializer_class = serializers.StudentCohortSerializer
-    filterset_fields = ["grade", "academic_year", "purpose", "is_temporary"]
+    filterset_fields = ["academy_class", "academic_year", "purpose", "is_temporary"]
     search_fields = ["name", "id_number"]
 
     @extend_schema(
@@ -673,11 +688,11 @@ class CohortMembershipViewSet(AuditedModelViewSet):
 
 
 class PaperAssignmentViewSet(AuditedModelViewSet):
-    """Issues a locked version to a grade, or to one cohort inside it."""
+    """Issues a locked version to a class, or to one cohort inside it."""
 
     serializer_class = serializers.PaperAssignmentSerializer
     filterset_fields = [
-        "paper_version", "grade", "academic_year", "student_cohort",
+        "paper_version", "academy_class", "academic_year", "student_cohort",
         "is_practice", "marking_method",
     ]
     ordering_fields = ["time_open", "time_close"]
@@ -926,12 +941,12 @@ class GuardianLinkViewSet(AuditedModelViewSet):
 
 class AttendanceSessionViewSet(AuditedModelViewSet):
     """
-    A register: one grade, one date, one period. Leave `syllabus` empty for
+    A register: one class, one date, one period. Leave `syllabus` empty for
     a whole-day register, or set it to take attendance for one lesson.
     """
 
     serializer_class = serializers.AttendanceSessionSerializer
-    filterset_fields = ["grade", "academic_year", "date", "period", "syllabus", "is_finalised"]
+    filterset_fields = ["academy_class", "academic_year", "date", "period", "syllabus", "is_finalised"]
     ordering_fields = ["date", "period"]
 
     @extend_schema(
@@ -952,7 +967,7 @@ class AttendanceSessionViewSet(AuditedModelViewSet):
         default = payload.validated_data["default_status"]
 
         enrolments = models.Enrolment.objects.filter(
-            grade=session.grade, academic_year=session.academic_year
+            academy_class=session.academy_class, academic_year=session.academic_year
         )
         written = []
         for enrolment in enrolments:

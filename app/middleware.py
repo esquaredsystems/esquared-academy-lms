@@ -6,10 +6,9 @@ day, their subjects, their calendar and their classes — so the admin
 home page forwards to /admin/home/ for anyone whose role is teaching
 and nothing more.
 
-Anyone who also runs the academy — Admin, Academic Admin, Head of
-Department, IT Administrator — keeps the dashboard, because they use it.
-And `?home=1` always shows the dashboard, so the redirect is never a
-trap.
+Anyone who also runs the academy — Administrator — keeps the dashboard,
+because they use it. And `?home=1` always shows the dashboard, so the
+redirect is never a trap.
 """
 
 from django.shortcuts import redirect
@@ -29,10 +28,7 @@ class TeacherLandingMiddleware:
     #: Roles that are given the dashboard instead: they run things, and
     #: the panels are what they came for.
     DASHBOARD_ROLES = {
-        access.ADMIN,
-        access.ACADEMIC_ADMIN,
-        access.IT_ADMIN,
-        access.HEAD_OF_DEPARTMENT,
+        access.ADMINISTRATOR,
     }
 
     def __init__(self, get_response):
@@ -52,12 +48,12 @@ class TeacherLandingMiddleware:
             if user is not None and user.is_authenticated and not user.is_superuser:
                 roles = access.role_names(user)
                 if not (roles & self.DASHBOARD_ROLES):
-                    if access.TEACHING_STAFF in roles:
+                    if access.TEACHER in roles:
                         return redirect(self.landing)
                     # A student's whole use of the system is one page.
                     if access.STUDENT in roles:
                         return redirect(self.student_landing)
                     # An examiner's whole job is the checking screen.
-                    if access.MARKING_REVIEWER in roles:
+                    if access.EXAMINER in roles:
                         return redirect(self.examiner_landing)
         return self.get_response(request)

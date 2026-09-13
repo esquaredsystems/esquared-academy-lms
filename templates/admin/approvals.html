@@ -71,7 +71,7 @@
 
 {% for c in classes %}
   <div class="cls">
-    <h2>{{ c.syllabus.grade }} <span class="g">· {{ c.syllabus.subject.full_name|default:c.syllabus.subject.short_name }}</span></h2>
+    <h2>{{ c.syllabus.academy_class }} <span class="g">· {{ c.syllabus.subject.full_name|default:c.syllabus.subject.short_name }}</span></h2>
 
     {% for r in c.rows %}
       <div class="job">

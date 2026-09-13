@@ -14,7 +14,7 @@
       <div class="sp-year{% if row.enrolment.voided %} is-voided{% endif %}">
         <div class="sp-year-head">
           <b>{{ row.enrolment.academic_year }}</b>
-          <span class="sp-grade">{{ row.enrolment.grade.full_name|shorten }}</span>
+          <span class="sp-academy-class">{{ row.enrolment.academy_class.full_name|shorten }}</span>
           {% if row.enrolment.voided %}
             <span class="sp-tag is-voided">voided</span>
           {% elif row.current %}

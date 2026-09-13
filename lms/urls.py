@@ -5,7 +5,7 @@ URL configuration for the lms project.
     /admin/            Django admin
     /admin/home/       a teacher's home: six ways in and nothing else
     /admin/calendar/   their lessons, month by month
-    /admin/browse/     grade > subject > topic > lectures and assignments
+    /admin/browse/     class > subject > topic > lectures and assignments
     /admin/my-day/     a teacher's own screen: today's lessons
     /admin/lesson/<id>/materials/   upload lecture material
     /admin/handout/<id>/            print it, hand it out, watch it come back

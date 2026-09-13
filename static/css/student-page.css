@@ -40,7 +40,7 @@
   padding-bottom: 7px; border-bottom: 1px solid var(--ac-line, #d8ded9);
 }
 .sp-year-head b { font-size: 17px; font-variant-numeric: tabular-nums; }
-.sp-grade { color: var(--ac-ink-2, #41505d); }
+.sp-academy-class { color: var(--ac-ink-2, #41505d); }
 .sp-tag {
   font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
   padding: 2px 8px; border-radius: 10px; border: 1px solid currentColor;
