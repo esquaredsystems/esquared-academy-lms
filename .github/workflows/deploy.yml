@@ -1,0 +1,51 @@
+name: Deploy to Production
+
+# Fires whenever the "production" branch is updated
+on:
+  push:
+    branches:
+      - production
+  workflow_dispatch: {}
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy via SSH
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+
+            echo "==> Fetching latest production branch"
+            git fetch origin production
+            git reset --hard origin/production
+
+            echo "==> Rebuilding and restarting LMS containers only"
+            docker compose pull --ignore-pull-failures || true
+            docker compose up -d --build --remove-orphans
+
+            echo "==> Cleaning up dangling images"
+            docker image prune -f
+
+      - name: Smoke test
+        run: |
+          sleep 5
+          status=$(curl -s -o /dev/null -w "%{http_code}" http://13.215.19.254:8000 || echo "000")
+          echo "LMS responded with HTTP $status"
+          if [ "$status" -ge 500 ] || [ "$status" = "000" ]; then
+            echo "::error::Deploy smoke test failed (HTTP $status)"
+            exit 1
+          fi
