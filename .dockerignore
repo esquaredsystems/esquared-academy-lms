@@ -1,0 +1,9 @@
+.git
+.env
+.idea
+vennv
+venv
+__pycache__
+*.pyc
+media
+docs

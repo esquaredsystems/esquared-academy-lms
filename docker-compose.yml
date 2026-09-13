@@ -1,4 +1,4 @@
-# MySQL 8.4 for local development.
+# Django application and MySQL 8.4.
 #
 # Django 5.2 requires MySQL 8.0.11+, and the CHECK constraints in
 # app/models.py are only enforced from 8.0.16. This runs a modern server on
@@ -11,6 +11,28 @@
 #   docker compose down -v       stop and delete the data
 
 services:
+  app:
+    build:
+      context: .
+    container_name: esquared-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    command:
+      - sh
+      - -c
+      - python manage.py collectstatic --noinput && python manage.py migrate && python manage.py seed_curriculum && exec gunicorn lms.wsgi:application --bind 0.0.0.0:8000 --workers 8
+    volumes:
+      - ./media:/app/media
+
   db:
     image: mysql:8.4
     container_name: esquared-mysql
