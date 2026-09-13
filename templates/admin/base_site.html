@@ -8,6 +8,19 @@
   <link rel="stylesheet" href="{% static 'css/academy-admin.css' %}">
 {% endblock %}
 
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="icon" type="image/png" href="{% static 'images/esquared-academy-logo.png' %}">
+{% endblock %}
+
+{% block branding %}
+  <h1 id="site-name">
+    <a href="{% url 'admin:index' %}">
+      <span>Esquared Academy</span>
+    </a>
+  </h1>
+{% endblock %}
+
 {% comment %}
   The "App" step in the breadcrumb pointed at the per-application index,
   which now redirects home. Stripped here rather than by overriding half
@@ -21,4 +34,5 @@
     copy. Bump the number whenever breadcrumbs.js changes.
   {% endcomment %}
   <script src="{% static 'js/breadcrumbs.js' %}?v=4"></script>
+  <script src="{% static 'js/sidebar-collapse.js' %}?v=1"></script>
 {% endblock %}

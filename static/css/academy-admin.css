@@ -156,6 +156,16 @@ body.menu-pinned #container { padding-left: 264px; }
     color: #f0fae1 !important;
     padding: 0 !important;
 }
+#branding h1 a {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+#branding h1 img {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
+}
 #branding-pin, #branding-menu { color: var(--ac-sage-light) !important; }
 
 .sidebar-section {
@@ -163,6 +173,46 @@ body.menu-pinned #container { padding-left: 264px; }
     padding: 14px 12px !important;
 }
 .sidebar-section + .sidebar-section { padding-top: 2px !important; }
+.sidebar-section > .sidebar-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.sidebar-section-toggle {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ac-sage-light);
+    cursor: pointer;
+    position: relative;
+}
+.sidebar-section-toggle::before {
+    content: "";
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    top: 7px;
+    left: 8px;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+}
+.sidebar-section-toggle:hover,
+.sidebar-section-toggle:focus-visible {
+    background: var(--ac-sage-mid);
+    color: #f0fae1;
+}
+.sidebar-section-collapsed > :not(.sidebar-title) {
+    display: none !important;
+}
+.sidebar-section-collapsed .sidebar-section-toggle::before {
+    top: 9px;
+    transform: rotate(-45deg);
+}
 
 .sidebar-title,
 .sidebar-title-link,
