@@ -63,7 +63,7 @@
       <a href="{{ f.url }}" target="_blank" rel="noopener">The sheet — {{ f.name }}</a>
     {% endfor %}
     {% for f in scheme %}
-      <a class="scheme" href="{{ f.url }}" target="_blank" rel="noopener">Answer scheme — {{ f.name }}</a>
+      <a class="scheme" href="{{ f.url }}" target="_blank" rel="noopener">Mark scheme — {{ f.name }}</a>
     {% endfor %}
   </div>
 {% endif %}
@@ -81,7 +81,7 @@
       <td>
         {% if r.status == "waiting" %}<span class="pill wait">Waiting</span>
         {% elif r.status == "redo" %}<span class="pill redo">Redo (student)</span>
-        {% elif r.status == "approval" %}<span class="pill appr">With teacher</span>
+        {% elif r.status == "approval" %}<span class="pill appr">Pending approval</span>
         {% elif r.status == "released" %}<span class="pill done">Released</span>
         {% else %}<span class="pill done">Checked</span>{% endif %}
       </td>

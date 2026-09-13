@@ -50,6 +50,26 @@
   .pill{font-size:10px;letter-spacing:.05em;text-transform:uppercase;
     padding:3px 9px;border-radius:999px;font-weight:600}
   .pill.late{background:#fdf4e3;color:#8a5a12}
+  .panes{display:flex;gap:18px;flex-wrap:wrap;margin:0 0 24px}
+  .pane{flex:1 1 400px;min-width:310px;display:flex;flex-direction:column}
+  .pane.work{flex:1.3 1 520px}
+  .pane .bar{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+    margin:0 0 9px;padding-bottom:5px;border-bottom:1px solid var(--ac-line,#dcd3c4)}
+  .pane .bar h2{font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ac-ink-3,#645c50);margin:0;flex:1 1 auto}
+  .pane .bar .nm{font-size:12px;color:var(--ac-ink-3,#645c50)}
+  .pane .bar a{font-size:12px;color:var(--ac-accent-text,#8c491a);
+    text-decoration:none;white-space:nowrap}
+  .viewer{background:#fff;border:1px solid var(--ac-line,#dcd3c4);border-radius:12px;
+    overflow:hidden;height:74vh;min-height:420px;display:flex;flex-direction:column}
+  .viewer iframe{border:0;width:100%;flex:1 1 auto}
+  .viewer .stack{overflow:auto;flex:1 1 auto;background:#f3ede2}
+  .viewer .stack img{display:block;width:100%;height:auto}
+  .viewer .none{margin:auto;padding:26px;text-align:center;font-size:13px;
+    line-height:1.6;color:var(--ac-ink-3,#645c50)}
+  .viewer .none.bad{color:#8c2f2f}
+  .viewer .none a{color:var(--ac-accent-text,#8c491a)}
+  .below{max-width:860px}
 </style>
 {% endblock %}
 
@@ -79,35 +99,60 @@
   </div>
 {% endif %}
 
-<div class="cols">
-  <div class="col">
-    <h2 class="sec">What the student handed in</h2>
-    <div class="files">
-      {% for f in work %}
-        <a href="{{ f.url }}" target="_blank" rel="noopener">
-          {{ f.name }}<small>{{ f.size }}</small>
-        </a>
-      {% empty %}
-        <span style="color:#8c2f2f">Nothing attached — this needs looking at.</span>
-      {% endfor %}
+{% comment %}
+  The script and the mark scheme, side by side, with the marking below
+  them. Reading a script in one tab and its mark scheme in another is how
+  marks get missed.
+{% endcomment %}
+<div class="panes">
+  <section class="pane work">
+    <div class="bar">
+      <h2>What the student handed in</h2>
+      {% if work.0 %}<span class="nm">{{ work.0.name }} · {{ work.0.size }}</span>
+        <a href="{{ work.0.url }}" target="_blank" rel="noopener">Open ↗</a>{% endif %}
     </div>
-
-    <h2 class="sec">Reference</h2>
-    <div class="files">
-      {% for f in sheet %}
-        <a href="{{ f.url }}" download>{{ f.name }}<small>the sheet</small></a>
-      {% endfor %}
-      {% for f in scheme %}
-        <a href="{{ f.url }}" download>{{ f.name }}<small>answer scheme</small></a>
-      {% empty %}
-        <span style="color:var(--ac-ink-3,#645c50);font-size:13px">
-          No answer scheme attached to this handout.</span>
-      {% endfor %}
+    <div class="viewer">
+      {% if work.0.is_pdf %}
+        <iframe src="{{ work.0.url }}#view=FitH" title="The student's work"></iframe>
+      {% elif work.0.is_image %}
+        <div class="stack">
+          {% for f in work %}<img src="{{ f.url }}" alt="{{ f.name }}">{% endfor %}
+        </div>
+      {% elif work.0 %}
+        <p class="none">{{ work.0.name }} cannot be shown here.
+          <br><a href="{{ work.0.url }}" target="_blank" rel="noopener">Open it in a new tab</a></p>
+      {% else %}
+        <p class="none bad">Nothing attached — this needs looking at before it can be marked.</p>
+      {% endif %}
     </div>
-  </div>
+  </section>
 
-  <div class="col">
-    <h2 class="sec">Hand it back</h2>
+  <section class="pane">
+    <div class="bar">
+      <h2>Mark scheme</h2>
+      {% if scheme.0 %}<a href="{{ scheme.0.url }}" target="_blank" rel="noopener">Open ↗</a>{% endif %}
+      {% if sheet.0 %}<a href="{{ sheet.0.url }}" target="_blank" rel="noopener">The sheet ↗</a>{% endif %}
+    </div>
+    <div class="viewer">
+      {% if scheme.0.is_pdf %}
+        <iframe src="{{ scheme.0.url }}#view=FitH" title="Mark scheme"></iframe>
+      {% elif scheme.0.is_image %}
+        <div class="stack">
+          {% for f in scheme %}<img src="{{ f.url }}" alt="{{ f.name }}">{% endfor %}
+        </div>
+      {% elif scheme.0 %}
+        <p class="none">{{ scheme.0.name }} cannot be shown here.
+          <br><a href="{{ scheme.0.url }}" target="_blank" rel="noopener">Open it in a new tab</a></p>
+      {% else %}
+        <p class="none">No mark scheme is attached to this handout.
+          {% if sheet.0 %}<br><a href="{{ sheet.0.url }}" target="_blank" rel="noopener">Open the sheet instead</a>{% endif %}</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<div class="below">
+  <h2 class="sec">Hand it back</h2>
     <form class="box" method="post" enctype="multipart/form-data">
       {% csrf_token %}
 
@@ -186,8 +231,7 @@
         <button type="submit">Hand back checked</button>
         <a href="{{ queue_url }}">Cancel</a>
       </div>
-    </form>
-  </div>
+  </form>
 </div>
 
 <script>

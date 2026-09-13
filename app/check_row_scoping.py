@@ -3,10 +3,22 @@ Can one student see another child's record?
 
 The permission system says a student may view the Student table — that is
 what shows them their own record. It says nothing about which rows. This
-is the test that the row scoping is actually applied where the screens are.
+is the check that the row scoping is actually applied where the screens
+are.
+
+Run it on its own, from the project root:
+
+    venv\Scripts\python.exe -m app.check_row_scoping
+
+It is a standalone script, not part of the test suite: it builds its own
+test database at import time. That is also why it is NOT called
+`tests_row_scoping.py` — `manage.py test` collects every file matching
+`test*.py`, so under that name Django imported it while gathering tests,
+the setup below ran a second time inside a run that had already started,
+and the whole suite died before reaching the real tests.
 """
 import os, django
-os.environ.setdefault("DJANGO_SETTINGS_MODULE","checksettings"); django.setup()
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "lms.settings"); django.setup()
 from django.test.utils import setup_test_environment
 from django.test.runner import DiscoverRunner
 setup_test_environment(); r=DiscoverRunner(verbosity=0,interactive=False); old=r.setup_databases()

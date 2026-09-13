@@ -1,0 +1,229 @@
+Esquared Academy LMS setup - Fri 09/11/2026  0:31:18.55 
+ 
+=================================================================== 
+1 of 6  Applying database migrations 
+=================================================================== 
+Operations to perform:
+  Apply all migrations: admin, app, auth, contenttypes, dashboard, jet, sessions
+Running migrations:
+  No migrations to apply.
+ 
+=================================================================== 
+2 of 6  Creating the twelve roles 
+=================================================================== 
+
+Roles
+  Admin                  updated   192 permissions
+  Academic Admin         updated   162 permissions
+  IT Administrator       updated    16 permissions
+  Head of Department     updated   122 permissions
+  Teaching Staff         updated    73 permissions
+  Paper Setter           updated    45 permissions
+  Marking Reviewer       updated    17 permissions
+  Exam Operations        updated    30 permissions
+  Non-academic Staff     updated    24 permissions
+  Student                updated    31 permissions
+  Guardian               updated    22 permissions
+  Guest                  updated     3 permissions
+
+Row-level scoping (a student's own rows, a guardian's wards) is applied by app/access.py, not by these permissions.
+
+ 
+=================================================================== 
+3 of 6  Importing staff, students and timetable 
+=================================================================== 
+
+Importing setup_data.json into academic year 2627
+
+  grades             5
+  subjects           13
+  teachers           6
+  teaching rows      19
+  examiners          5
+  examiner rows      15
+  students           99
+  timetable slots    15
+
+Warnings
+  - subject 'Activity' was not on the Subjects sheet — added it
+
+Imported.
+Staff accounts have NO password yet. For each one:
+    manage.py reset_login <username> --set
+ 
+=================================================================== 
+4 of 6  Creating logins for students 
+=================================================================== 
+  EXISTS  26070108  (Aariz s/o Altaf Tunia )
+  EXISTS  26070109  (Abbas Abid )
+  EXISTS  26070110  (Abdul Hadi )
+  EXISTS  26070111  (Abdul Rafay s/o Khalid Ghiteli )
+  EXISTS  26070112  (Abdul Rehman Mehboob )
+  EXISTS  26070113  (Abdul Rehman s/o Dr. Kashif )
+  EXISTS  26070114  (Abdul Rehman s/o Muhammad Salman )
+  EXISTS  26070115  (Abdullah Hanif Ballu )
+  EXISTS  26070116  (Abdullah s/o Hussain Jamsa )
+  EXISTS  26070117  (Abdullah Sadiq )
+  EXISTS  26070118  (Abdullah Sohail s/o Sohail Ahmed Sheikh )
+  EXISTS  26070119  (Abdun Nafay s/o Hafiz Rizwan Ahmed )
+  EXISTS  26070120  (Abdur Rafay s/o Waseem )
+  EXISTS  26070121  (Afifa Ubaid )
+  EXISTS  26070122  (Ahsan Irfan )
+  EXISTS  26070123  (Aisha Siddiqa d/o Hussain Jamsa )
+  EXISTS  26070200  (Aman Sadiq )
+  EXISTS  26070201  (Amna Arif )
+  EXISTS  26070202  (Amna Iqbal Ranta )
+  EXISTS  26070203  (Anusha Yaseen d/o Muhammad Yaseen )
+  EXISTS  26070204  (Arsh Pilot )
+  EXISTS  26070205  (Arwa Shaikh )
+  EXISTS  26070206  (Atika d/o Atiq-ur-Rehman )
+  EXISTS  26070207  (Ayaan Khurram s/o Khurram Hanif )
+  EXISTS  26070208  (Ebaad Aftab )
+  EXISTS  26070209  (Emaad Aftab s/o Muhammad Aftab )
+  EXISTS  26070210  (Eraj Fatima Mohammad Iqbal )
+  EXISTS  26070211  (Fabiha Hanif d/o Muhammad Hanif )
+  EXISTS  26070212  (Fatima Ashfaq Tunia )
+  EXISTS  26070213  (Hafiz Abdul Hadi s/o Jawed Iqbal )
+  EXISTS  26070214  (Hafiz Sohaib Mustafa Bhagat )
+  EXISTS  26070215  (Hania Farhan )
+  EXISTS  26070216  (Hania Khurram )
+  EXISTS  26070217  (Haniya Najeeb )
+  EXISTS  26070218  (Hunzala s/o Dr. Khalid )
+  EXISTS  26070219  (Huzefa Waseem )
+  EXISTS  26070220  (Ibrahim s/o Kamran Chanda )
+  EXISTS  26070221  (Ibrahim Shaikh )
+  EXISTS  26070222  (Imama Fawwad d/o Fawwad )
+  EXISTS  26070223  (Inshaal Kashif )
+  EXISTS  26070300  (Ismail s/o Sadiq )
+  EXISTS  26070301  (Javeria Arif )
+  EXISTS  26070302  (Khuzaima Muhammad Anwer )
+  EXISTS  26070303  (Labiba )
+  EXISTS  26070304  (Maliha Yaseen )
+  EXISTS  26070305  (Marium Najeeb )
+  EXISTS  26070306  (Midlaaj s/o Molana Muzamil )
+  EXISTS  26070307  (Minha Hanif )
+  EXISTS  26070308  (Muaaz Ismail )
+  EXISTS  26070309  (Muhammad Ahmed s/o Muhammad Tariq Aledar )
+  EXISTS  26070310  (Muhammad Ahmed s/o Qasim Luni )
+  EXISTS  26070311  (Muhammad Ahsan s/o Imran Shaikh )
+  EXISTS  26070312  (Muhammad Ali s/o Daniyal )
+  EXISTS  26070313  (Muhammad Amaan s/o Zohaib Morla )
+  EXISTS  26070314  (Muhammad Arham s/o Adnan Ahmed )
+  EXISTS  26070315  (Muhammad Arham s/o Waqas Ahmed )
+  EXISTS  26070316  (Muhammad Arqam s/o Adnan Ahmed )
+  EXISTS  26070317  (Muhammad Bin Arif )
+  EXISTS  26070318  (Muhammad Dawood )
+  EXISTS  26070319  (Muhammad Fareed Alam )
+  EXISTS  26070320  (Muhammad Hamdan Raees )
+  EXISTS  26070321  (Muhammad Hammad s/o Raees Kalu )
+  EXISTS  26070322  (Muhammad Hassan Shaikh )
+  EXISTS  26070323  (Muhammad Irtiza )
+  EXISTS  26070400  (Muhammad Maarib s/o Muhammad Saad )
+  EXISTS  26070401  (Muhammad Mustafa s/o Baber Siddiq )
+  EXISTS  26070402  (Muhammad Rabi s/o Farhan Kachba )
+  EXISTS  26070403  (Muhammad Shazan s/o Jawed )
+  EXISTS  26070404  (Muhammad Umar s/o Aamir Morla )
+  EXISTS  26070405  (Muhammad Umer s/o Mehmood Khan )
+  EXISTS  26070406  (Muhammad Wabisa s/o Muhammad Ashraf Darky )
+  EXISTS  26070407  (Muhammad Zaid s/o Zubair Ranta )
+  EXISTS  26070408  (Muhammad Zohaib s/o Baber Siddiq )
+  EXISTS  26070409  (Nabiha Siddiq d/o Siddiq Yousuf )
+  EXISTS  26070410  (Navaar Muzammil )
+  EXISTS  26070411  (Rabeeba Batool )
+  EXISTS  26070412  (Rayyan Ali s/o Irfan Andhi )
+  EXISTS  26070413  (Rayyan Kashif )
+  EXISTS  26070414  (Rayyan Mursaleen )
+  EXISTS  26070415  (Rayyan Shahzad )
+  EXISTS  26070416  (Rifda Maryum )
+  EXISTS  26070417  (Rohaan Aftab )
+  EXISTS  26070418  (Roman Bedi )
+  EXISTS  26070419  (Ruhab Moyz d/o Miss Asma )
+  EXISTS  26070420  (Rumman Bedi s/o Nasir Bedi )
+  EXISTS  26070421  (Ruqayya Arif )
+  EXISTS  26070422  (Sarwan s/o Abdul Qadir )
+  EXISTS  26070423  (Shaheer s/o Abid Sujela )
+  EXISTS  26070500  (Sufiyan s/o Hasan Chhota )
+  EXISTS  26070501  (Sumair s/o Abdul Qadir )
+  EXISTS  26070502  (Sumair Shahzad )
+  EXISTS  26070503  (Umais Muawiya s/o Ahmed Hussain )
+  EXISTS  26070504  (Umer Farooq )
+  EXISTS  26070505  (Umer Kharadi s/o Farhan Kharadi )
+  EXISTS  26070506  (Umer Shabbir )
+  EXISTS  26070507  (Usman Zia )
+  EXISTS  26070508  (Yahya Fawwad )
+  EXISTS  26070509  (Zarmeen Gul d/o Yameen )
+  EXISTS  26070510  (Zawahir s/o Mehwish Arsalan )
+  EXISTS  DEMO-S01  (Zoya Kazmi)
+  EXISTS  DEMO-S02  (Hamza Memon)
+  EXISTS  DEMO-S03  (Alishba Rizvi)
+  EXISTS  DEMO-S04  (Ahmed Sheikh)
+  EXISTS  DEMO-S05  (Fatima Jafri)
+  EXISTS  DEMO-S06  (Bilal Abbasi)
+  EXISTS  DEMO-S07  (Mahnoor Baloch)
+  EXISTS  DEMO-S08  (Talha Farooqui)
+  EXISTS  DEMO-S09  (Ayesha Hashmi)
+  EXISTS  DEMO-S10  (Saad Zuberi)
+  EXISTS  DEMO-S11  (Hina Lakhani)
+  EXISTS  DEMO-S12  (Danish Soomro)
+  EXISTS  DEMO-S13  (Sana Ghouri)
+  EXISTS  DEMO-S14  (Owais Tirmizi)
+  EXISTS  DEMO-S15  (Areeba Naqvi)
+  EXISTS  DEMO-S16  (Rayyan Dossani)
+  EXISTS  DEMO-S17  (Kiran Merchant)
+  EXISTS  DEMO-S18  (Zain Kapadia)
+  EXISTS  DEMO-S19  (Maryam Alvi)
+  EXISTS  DEMO-S20  (Shahmir Vohra)
+
+
+Created 0 account(s).  Skipped / already exist: 119.  Errors: 0.
+ 
+=================================================================== 
+5 of 6  Building this fortnight's lessons 
+=================================================================== 
+
+Lessons for 07 Sep 2026 – 20 Sep 2026  (year 2627)
+  Mon 07 Sep   nothing to do, 3 already there
+  Tue 08 Sep   nothing to do, 3 already there
+  Wed 09 Sep   nothing to do, 3 already there
+  Thu 10 Sep   nothing to do, 3 already there
+  Fri 11 Sep   nothing to do, 3 already there
+  Mon 14 Sep   nothing to do, 3 already there
+  Tue 15 Sep   nothing to do, 3 already there
+  Wed 16 Sep   nothing to do, 3 already there
+  Thu 17 Sep   nothing to do, 3 already there
+  Fri 18 Sep   nothing to do, 3 already there
+
+0 lesson(s) created, 30 already existed.
+
+ 
+=================================================================== 
+6 of 6  Where every account stands 
+=================================================================== 
+
+Accounts
+  registered (can log in) ... 17
+  created, no password yet .. 123
+  voided .................... 2
+  ----------------------------------
+  total ..................... 142
+
+By role
+  Academic Admin        1 / 1    done
+  Admin                 1 / 1    done
+  Exam Operations       1 / 1    done
+  Guardian              1 / 1    done
+  Guest                 1 / 1    done
+  Head of Department    1 / 1    done
+  IT Administrator      1 / 1    done
+  Marking Reviewer      2 / 6    4 to go
+  Non-academic Staff    1 / 1    done
+  Paper Setter          1 / 1    done
+  Student               1 / 119  118 to go
+  Teaching Staff        5 / 10   5 to go
+
+  1 account(s) have no role yet — they can log in but will see nothing. Assign a group in the admin.
+
+Students
+  student records ........... 119
+  with a login account ...... 119
+

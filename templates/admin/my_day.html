@@ -487,7 +487,7 @@
           <tr>
             <th class="pen"></th>
             <th>Chapter</th><th>Topic</th><th>Handout file</th>
-            <th>Answer scheme</th><th>Code</th><th>Posted?</th><th></th>
+            <th>Mark scheme</th><th>Code</th><th>Posted?</th><th></th>
           </tr>
 
           {% for a in row.assignment_rows %}
@@ -564,7 +564,7 @@
                   <input type="text" name="chapter" placeholder="Chapter" value="{{ a.handout.chapter }}">
                   <input type="text" name="topic_text" placeholder="Topic" value="{{ a.handout.topic_text }}">
                   <label class="pick">Sheet <input type="file" name="file"></label>
-                  <label class="pick">Answer scheme <input type="file" name="scheme"></label>
+                  <label class="pick">Mark scheme <input type="file" name="scheme"></label>
                   <span class="dates">
                     <label>Open from
                       <input type="datetime-local" name="open_from"
@@ -610,7 +610,7 @@
                 <input type="text" name="topic_text" placeholder="Topic"
                        value="{{ row.defaults.topic }}">
                 <label class="pick">Sheet <input type="file" name="file"></label>
-                <label class="pick">Answer scheme <input type="file" name="scheme"></label>
+                <label class="pick">Mark scheme <input type="file" name="scheme"></label>
                 <span class="dates">
                   <label>Open from <input type="datetime-local" name="open_from"></label>
                   <label>Due <input type="date" name="due_date"></label>

@@ -757,7 +757,7 @@ class RoleTests(Fixture):
         client.force_authenticate(user)
         return client
 
-    def test_the_six_roles_exist(self):
+    def test_every_role_exists(self):
         self.assertEqual(
             set(Group.objects.values_list("name", flat=True)), set(access.ROLES)
         )
@@ -782,10 +782,24 @@ class RoleTests(Fixture):
     def test_teaching_staff_reach_teaching_tables(self):
         client = self.api(self.teacher_user)
 
-        self.assertEqual(client.get("/api/questions/").status_code, 200)
         self.assertEqual(client.get("/api/students/").status_code, 200)
         self.assertEqual(client.get("/api/answers/").status_code, 200)
         self.assertEqual(client.get("/api/attendance-sessions/").status_code, 200)
+
+    def test_the_question_bank_belongs_to_the_paper_setter(self):
+        """
+        A teacher's reach stops at the question bank.
+
+        Paper setting is its own role, and a teacher who also sets papers
+        is given that role as well rather than having it folded into this
+        one — the reasoning is on TEACHING_STAFF in seed_roles.py. The
+        assertion is here so the separation cannot quietly come undone.
+        """
+        self.assertEqual(
+            self.api(self.teacher_user).get("/api/questions/").status_code, 403
+        )
+        setter = self._member("setter1", access.PAPER_SETTER)
+        self.assertEqual(self.api(setter).get("/api/questions/").status_code, 200)
 
     def test_non_academic_staff_get_attendance_but_not_questions(self):
         client = self.api(self.office_user)

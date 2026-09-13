@@ -40,6 +40,17 @@
   .selfcheck{margin:10px 0 0;padding:8px 12px;border-radius:9px;font-size:12.5px;
     background:#fdf4e3;border:1px solid #e6d3a8;color:#8a5a12}
   .empty{color:var(--ac-ink-3,#645c50);font-size:15px;margin-top:20px}
+  .chip{font-size:10px;letter-spacing:.07em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;background:#dbe7f3;color:#2c4f73}
+  table.bd td input{width:100%;box-sizing:border-box;padding:5px 8px;font-size:13px;
+    border:1px solid var(--ac-line,#dcd3c4);border-radius:7px;background:#fff;
+    font-family:inherit;color:inherit}
+  table.bd td input.num{width:72px;text-align:right}
+  table.bd td.lbl{font-weight:600;white-space:nowrap}
+  table.bd tfoot th{font-size:13px;padding-top:9px;border-bottom:0}
+  .editnote{margin:8px 0 0;font-size:12.5px;color:var(--ac-ink-3,#645c50)}
+  .src{font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--ac-ink-3,#8b8175)}
 </style>
 {% endblock %}
 
@@ -70,6 +81,7 @@
             {{ r.handout.topic_text|default:r.handout.title }} ·
             <code>{{ r.handout.code }}</code>
             {% if r.marked_by %}· checked by {{ r.marked_by.get_full_name|default:r.marked_by.username }}{% endif %}</span>
+          <span class="chip">Pending approval</span>
           {% if r.marks %}<span class="mark">{{ r.marks.awarded|floatformat:"-2" }} / {{ r.marks.out_of|floatformat:"-2" }}</span>
           {% elif r.submission.awarded_marks is not None %}<span class="mark">{{ r.submission.awarded_marks|floatformat:"-2" }}</span>{% endif %}
         </div>
@@ -83,39 +95,60 @@
           {% endfor %}
         </div>
 
-        {% if r.marks %}
-          <table class="bd">
-            <thead><tr><th>Part</th><th>Got</th><th>Out of</th><th>Note</th></tr></thead>
-            <tbody>
-              {% for line in r.submission.lines %}
-                <tr{% if line.lost %} class="dropped"{% endif %}>
-                  <td>{{ line.label }}</td>
-                  <td>{{ line.awarded|floatformat:"-2" }}</td>
-                  <td>{{ line.out_of|floatformat:"-2" }}</td>
-                  <td>{{ line.comment|default:"—" }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        {% endif %}
-        {% if r.submission.feedback %}
-          <p class="who" style="margin-top:8px"><b>Examiner's note:</b> {{ r.submission.feedback }}</p>
-        {% endif %}
-        {% if r.self_check %}
-          <p class="selfcheck">You checked this one yourself — approving it is your
-            own sign-off, not a second opinion.</p>
-        {% endif %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="submission" value="{{ r.submission.pk }}">
 
-        <div class="acts">
-          <form method="post" style="display:inline">
-            {% csrf_token %}
-            <input type="hidden" name="submission" value="{{ r.submission.pk }}">
+          {% if r.lines %}
+            <table class="bd">
+              <thead><tr><th>Part</th><th>Got</th><th>Out of</th><th>Note</th></tr></thead>
+              <tbody>
+                {% for line in r.lines %}
+                  <tr>
+                    <td class="lbl">{{ line.label }}
+                      {% if line.source != "examiner" %}<span class="src">{{ line.get_source_display }}</span>{% endif %}
+                      <input type="hidden" name="line_id" value="{{ line.pk }}">
+                    </td>
+                    <td><input class="num" type="number" step="0.5" min="0"
+                               name="line_awarded" value="{{ line.awarded|floatformat:"-2" }}"></td>
+                    <td><input class="num" type="number" step="0.5" min="0"
+                               name="line_out_of" value="{{ line.out_of|floatformat:"-2" }}"></td>
+                    <td><input type="text" name="line_comment" value="{{ line.comment }}"
+                               placeholder="the student reads this"></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th>Total</th>
+                  <th>{{ r.marks.awarded|floatformat:"-2" }}</th>
+                  <th>{{ r.marks.out_of|floatformat:"-2" }}</th>
+                  <th></th>
+                </tr>
+              </tfoot>
+            </table>
+            <p class="editnote">Correct a figure here and approve — the change is
+              recorded as yours and the examiner's original is kept. Send it back
+              only when the marking itself needs another look.</p>
+          {% endif %}
+
+          {% if r.submission.feedback %}
+            <p class="who" style="margin-top:8px"><b>Examiner's note:</b> {{ r.submission.feedback }}</p>
+          {% endif %}
+          {% if r.self_check %}
+            <p class="selfcheck">You checked this one yourself — approving it is your
+              own sign-off, not a second opinion.</p>
+          {% endif %}
+
+          <div class="acts">
             <button class="approve" name="action" value="approve">Approve &amp; release</button>
-          </form>
-          <button type="button" class="review" data-back="sb-ex-{{ r.submission.pk }}">Send back to examiner</button>
-          <button type="button" class="review" data-back="sb-st-{{ r.submission.pk }}">Ask student to redo</button>
-          <a class="look" href="{{ r.check_url }}">Open the full checking screen →</a>
-        </div>
+            <button type="button" class="review" data-back="sb-ex-{{ r.submission.pk }}">Send back to examiner</button>
+            <button type="button" class="review" data-back="sb-st-{{ r.submission.pk }}">Ask student to redo</button>
+            {% if may_check %}
+              <a class="look" href="{{ r.check_url }}">Open the full checking screen →</a>
+            {% endif %}
+          </div>
+        </form>
 
         <form method="post" class="sendback" id="sb-ex-{{ r.submission.pk }}">
           {% csrf_token %}

@@ -80,7 +80,7 @@
 
 <p class="whatfor">
   Everything about one handout in one place: the sheet the class gets, the
-  answer scheme only staff see, who has handed in, and extensions. The
+  mark scheme only staff see, who has handed in, and extensions. The
   chapter, topic, dates and sheet can also be set straight from the
   assignments table in <a href="{{ my_day_url }}">My day</a> — this page is
   where you come when you want the rest.
@@ -118,7 +118,7 @@
     <input type="file" name="files" multiple required>
     <select name="role">
       <option value="handout">The sheet students get</option>
-      <option value="scheme">Answer scheme — never given out</option>
+      <option value="scheme">Mark scheme — never given out</option>
     </select>
     <button type="submit" class="ghost">Attach</button>
   </form>
@@ -147,7 +147,7 @@
   </p>
 {% endif %}
 
-<h2 class="sec">Answer scheme <span style="text-transform:none;letter-spacing:0">(staff only)</span></h2>
+<h2 class="sec">Mark scheme <span style="text-transform:none;letter-spacing:0">(staff only)</span></h2>
 {% if scheme %}
   <div class="files">
     {% for f in scheme %}
@@ -157,7 +157,7 @@
         </a>
         {% if may_change %}
           <form method="post" class="rm"
-                onsubmit="return confirm('Remove {{ f.name|escapejs }} from the answer scheme? The file itself is kept.')">
+                onsubmit="return confirm('Remove {{ f.name|escapejs }} from the mark scheme? The file itself is kept.')">
             {% csrf_token %}
             <input type="hidden" name="action" value="detach">
             <input type="hidden" name="role" value="scheme">
@@ -170,7 +170,7 @@
   </div>
 {% else %}
   <p style="color:var(--ac-ink-3,#645c50)">
-    Nothing attached. Use the box above and pick “Answer scheme”.
+    Nothing attached. Use the box above and pick “Mark scheme”.
   </p>
 {% endif %}
 

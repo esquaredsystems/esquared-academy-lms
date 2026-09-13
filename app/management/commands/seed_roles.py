@@ -87,12 +87,10 @@ ROLE_PERMISSIONS = {
         "guardianlink": READ,
     },
 
-    # Teaching and the pastoral side of it. Paper setting and marking have
-    # moved to the two roles below; a teacher who does those jobs is given
-    # those roles as well.
     # Teaching, and the pastoral side of it. Deliberately narrow: a
     # teacher's screen should hold their lessons and their students and
-    # very little else. Paper setting and marking are separate roles; the
+    # very little else. Paper setting and marking are separate roles, and
+    # a teacher who does those jobs is given those roles as well; the
     # internals of papers (items, versions) and of guardian access are
     # not a teacher's business and were removed on 5 September 2026 after
     # seeing how much noise they added to the teacher's dashboard.

@@ -18,7 +18,7 @@ Admin pages that are not tied to one model.
                 screen for handing back the checked version.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from io import StringIO
 
 from django.contrib import messages
@@ -91,7 +91,39 @@ def _plan(year):
     return rows
 
 
+# ---------------------------------------------------------------------
+# Who may open the staff screens
+# ---------------------------------------------------------------------
+def _may_open_teaching_screens(user):
+    """
+    Whether this account may open the teacher-facing pages.
+
+    Every account in the system carries `is_staff`, students included:
+    the whole interface lives under /admin/ and Django's admin login
+    refuses anyone without it. So `admin.site.admin_view()` is a door
+    key, not a rank — it lets any signed-in account reach these URLs by
+    typing them, and these pages show a whole class's lessons, its
+    answer schemes and every student's hand-in.
+
+    What holds a student to their own rows on the model lists is
+    `access.scope_queryset`; these pages are not model lists, so the
+    same job is done here, by role.
+    """
+    return (
+        user.is_superuser
+        or access.has_role(
+            user, access.TEACHING_STAFF, access.HEAD_OF_DEPARTMENT,
+            access.ACADEMIC_ADMIN, access.ADMIN,
+        )
+    )
+
+
 def demo_view(request, admin_site):
+    # Loading or removing the demo school rewrites data. Held to the
+    # accounts that may create students in the first place.
+    if not request.user.has_perm("app.add_student"):
+        raise PermissionDenied
+
     year = int(request.POST.get("year") or request.GET.get("year") or date.today().year)
 
     if request.method == "POST":
@@ -384,6 +416,9 @@ def my_day_view(request, admin_site):
     The timer and the log are posted back here rather than living on a
     separate page, because both happen with the class in front of you.
     """
+    if not _may_open_teaching_screens(request.user):
+        raise PermissionDenied
+
     if request.method == "POST":
         return _my_day_post(request)
 
@@ -662,15 +697,36 @@ def _detach_file(handout, attachment_id, role):
     return name
 
 
+def _viewable(attachment):
+    """
+    One file, described well enough to be *shown* rather than only linked.
+
+    The checking screen puts the script and the mark scheme in panes side
+    by side, which means knowing whether a file is a PDF the browser can
+    render or a picture that needs an <img>. Judged from the MIME type with
+    the extension as a fallback, the same way app/files.py classifies
+    everything else — browsers send an empty or wrong MIME type often
+    enough that the extension has to be a real fallback.
+    """
+    name = attachment.title or attachment.original_filename
+    lower = (attachment.original_filename or "").lower()
+    mime = (attachment.mime_type or "").lower()
+    return {
+        "attachment": attachment,
+        "name": name,
+        "url": attachment.file.url if attachment.file else "",
+        "kind": attachment.get_kind_display(),
+        "size": attachment.size_display,
+        "is_pdf": mime == "application/pdf" or lower.endswith(".pdf"),
+        "is_image": (
+            mime.startswith("image/") or attachment.kind == app_files.FileKind.PICTURE
+        ),
+    }
+
+
 def _handout_files(handout, role="handout"):
     return [
-        {
-            "attachment": link.attachment,
-            "name": link.attachment.title or link.attachment.original_filename,
-            "url": link.attachment.file.url if link.attachment.file else "",
-            "kind": link.attachment.get_kind_display(),
-            "size": link.attachment.size_display,
-        }
+        _viewable(link.attachment)
         for link in handout.attachments.all()
         if not link.voided and link.attachment_id and link.role == role
     ]
@@ -684,6 +740,9 @@ def handout_view(request, handout_id, admin_site):
     print step is only "how many". Whose work it is comes from the
     submission's own code, stamped when it arrives.
     """
+    if not _may_open_teaching_screens(request.user):
+        raise PermissionDenied
+
     handout = get_object_or_404(models.Handout, pk=handout_id)
 
     if request.method == "POST":
@@ -725,7 +784,7 @@ def handout_view(request, handout_id, admin_site):
                     "attach one before handing it out.",
                 )
             else:
-                messages.success(request, f"{name} removed from the answer scheme.")
+                messages.success(request, f"{name} removed from the mark scheme.")
             return redirect(reverse("handout", args=[handout.pk]))
 
         if action == "activate":
@@ -779,7 +838,7 @@ def handout_view(request, handout_id, admin_site):
             elif names:
                 messages.success(
                     request,
-                    "{} attached as the answer scheme. Students never see it.".format(
+                    "{} attached as the mark scheme. Students never see it.".format(
                         ", ".join(names)
                     ),
                 )
@@ -869,6 +928,9 @@ def handout_print_view(request, handout_id, admin_site):
     the due date and the instructions — the things a student needs in
     order to hand the right work back.
     """
+    if not _may_open_teaching_screens(request.user):
+        raise PermissionDenied
+
     handout = get_object_or_404(models.Handout, pk=handout_id)
     copies = handout.completion()["total"] or 0
     context = {
@@ -937,10 +999,21 @@ def my_work_view(request, admin_site):
         picked = request.FILES.get("file")
         uploads = [picked] if picked else []
 
-        allowed, why = (
-            handout.accepts_submission(enrolment) if enrolment is not None
-            else (False, "Your account is not linked to a student record.")
-        )
+        # It must be one of this student's own sheets: their class, their
+        # year, and work meant to be handed back. The handout id arrives
+        # in the form, so without this check a posted id from another
+        # class would be accepted and the hand-in would land against a
+        # gradebook the student is not in.
+        if enrolment is None:
+            allowed, why = False, "Your account is not linked to a student record."
+        elif not (
+            handout.is_assignment
+            and handout.syllabus.grade_id == enrolment.grade_id
+            and handout.syllabus.academic_year == enrolment.academic_year
+        ):
+            allowed, why = False, "That handout is not one of yours."
+        else:
+            allowed, why = handout.accepts_submission(enrolment)
         if not allowed:
             messages.error(request, why)
         elif not uploads:
@@ -959,16 +1032,39 @@ def my_work_view(request, admin_site):
                 .order_by("round_no")
             )
             done = len(previous)
-            if previous and not previous[-1].awaits_redo:
+            latest = previous[-1] if previous else None
+
+            # Three cases, and only the first two write anything.
+            #
+            #   * a redo the teacher asked for  -> the next round
+            #   * their own hand-in, still theirs to change -> replace it
+            #   * anything else -> refused, and the reason says which
+            #
+            # Replacing keeps the round number: it is the same attempt at
+            # the same work, not a second one. The file it replaces is
+            # voided rather than deleted, so what was handed in first is
+            # still on the record.
+            replacing = latest is not None and latest.replaceable()
+            if latest is not None and not latest.awaits_redo and not replacing:
                 messages.error(
                     request,
-                    "You have already handed this in. Your teacher will ask "
-                    "if anything needs doing again.",
+                    "Your work is being checked now, so it can no longer be "
+                    "replaced. Your teacher can ask you to do it again if "
+                    "something needs putting right."
+                    if latest.state != models.SubmissionState.SUBMITTED else
+                    "The window for this one has closed, so it can no longer "
+                    "be replaced. Ask your teacher if you need it reopened.",
                 )
             else:
                 minutes = handout.lateness(enrolment)
+                round_no = latest.round_no if replacing else done + 1
+                if replacing:
+                    latest.void(
+                        user=request.user,
+                        reason="replaced by the student before checking began",
+                    )
                 submission = models.Submission.objects.create(
-                    handout=handout, enrolment=enrolment, round_no=done + 1,
+                    handout=handout, enrolment=enrolment, round_no=round_no,
                     is_late=bool(minutes), minutes_late=minutes,
                     sheet_version=handout.sheet_version_no,
                 )
@@ -1005,7 +1101,11 @@ def my_work_view(request, admin_site):
                     stored += 1
 
                 if stored:
-                    note = f"Handed in. Your reference is {submission.code}."
+                    note = (
+                        f"Replaced. Your new reference is {submission.code}."
+                        if replacing else
+                        f"Handed in. Your reference is {submission.code}."
+                    )
                     if submission.is_late:
                         hours, mins = divmod(submission.minutes_late, 60)
                         late = f"{hours}h {mins:02d}m" if hours else f"{mins}m"
@@ -1027,6 +1127,12 @@ def my_work_view(request, admin_site):
                 syllabus__academic_year=enrolment.academic_year,
                 status=models.HandoutStatus.ACTIVE,
             )
+            # An assignment scheduled for tomorrow is not the student's
+            # business today. Nothing is visible before its opening moment,
+            # which is read from the clock at query time — no scheduler, no
+            # job to miss a firing, and it survives the server being off
+            # overnight.
+            .filter(Q(open_from__isnull=True) | Q(open_from__lte=timezone.now()))
             .select_related("syllabus", "syllabus__subject")
             .order_by("due_date", "code")
         )
@@ -1043,7 +1149,10 @@ def my_work_view(request, admin_site):
             # checked" — the examiner and the approval step are the
             # school's business, not the student's.
             released = bool(latest and latest.is_released)
-            if latest is not None and not latest.awaits_redo:
+            # Still theirs to change: the window is open and nobody has
+            # started checking it.
+            replacing = bool(latest and latest.replaceable())
+            if latest is not None and not latest.awaits_redo and not replacing:
                 allowed = False
                 why = (
                     "Checked — see below."
@@ -1065,6 +1174,7 @@ def my_work_view(request, admin_site):
                 "released": released,
                 "rounds_left": handout.max_rounds - len(mine),
                 "needs_redo": bool(latest and latest.awaits_redo),
+                "replacing": replacing,
                 # Only shown once released. A held mark shows nothing.
                 "checked": [
                     {
@@ -1084,7 +1194,8 @@ def my_work_view(request, admin_site):
                 "kind_label": handout.get_kind_display(),
                 "is_exam": handout.is_exam,
             }
-            (done_rows if mine and not row["needs_redo"] else open_rows).append(row)
+            still_open = row["needs_redo"] or replacing
+            (open_rows if (not mine or still_open) else done_rows).append(row)
 
     context = {
         **admin_site.each_context(request),
@@ -1180,6 +1291,12 @@ def notice_board_view(request, admin_site):
                 syllabus__academic_year=enrolment.academic_year,
                 status=models.HandoutStatus.ACTIVE,
             )
+            # An assignment scheduled for tomorrow is not the student's
+            # business today. Nothing is visible before its opening moment,
+            # which is read from the clock at query time — no scheduler, no
+            # job to miss a firing, and it survives the server being off
+            # overnight.
+            .filter(Q(open_from__isnull=True) | Q(open_from__lte=timezone.now()))
             .select_related("syllabus", "syllabus__subject", "topic")
             .order_by("due_date", "code")
         )
@@ -1626,6 +1743,9 @@ def my_subjects_view(request, admin_site):
     next year the whole year is planned in advance, and the same column
     answers that too — it is just a bigger number.
     """
+    if not _may_open_teaching_screens(request.user):
+        raise PermissionDenied
+
     teacher = _teacher_for(request.user)
     today = timezone.localdate()
     horizon = today + timedelta(days=7)
@@ -1738,6 +1858,9 @@ def teacher_home_view(request, admin_site):
     Six ways in, and nothing else. The dashboard's panels list database
     tables; these are the things a teacher actually looks for.
     """
+    if not _may_open_teaching_screens(request.user):
+        raise PermissionDenied
+
     teacher = _teacher_for(request.user)
     today = timezone.localdate()
     syllabi = list(_syllabi_for(teacher))
@@ -1790,6 +1913,9 @@ def teacher_home_view(request, admin_site):
 
 def calendar_view(request, admin_site):
     """A month of this teacher's lessons, as a grid."""
+    if not _may_open_teaching_screens(request.user):
+        raise PermissionDenied
+
     teacher = _teacher_for(request.user)
     today = timezone.localdate()
 
@@ -1859,6 +1985,9 @@ def browse_view(request, admin_site):
     filters. `grade`, `syllabus` and `topic` in the querystring say how far
     down the reader has gone.
     """
+    if not _may_open_teaching_screens(request.user):
+        raise PermissionDenied
+
     teacher = _teacher_for(request.user)
     syllabi = list(_syllabi_for(teacher))
 
@@ -2170,6 +2299,9 @@ def assignments_view(request, admin_site):
     assignments are still waiting on work. Collapsed by default because
     four classes of twenty handouts is a wall of text otherwise.
     """
+    if not _may_open_teaching_screens(request.user):
+        raise PermissionDenied
+
     teacher = _teacher_for(request.user)
     syllabi = list(_syllabi_for(teacher))
     now = timezone.now()
@@ -2244,6 +2376,54 @@ def _may_approve(user):
     )
 
 
+def _apply_mark_edits(request, submission):
+    """
+    The teacher's own corrections to the examiner's breakdown, if any.
+
+    Only a line whose numbers or wording actually changed is written, and a
+    line the teacher touches is re-attributed to them: the source column
+    exists to say who stands behind each mark, and the examiner's original
+    stays in the audit trail on the row.
+
+    This is here so that a one-mark slip is fixed in three clicks rather
+    than crossing a desk twice. Real disagreement still goes back to the
+    examiner, with a reason.
+    """
+    ids = request.POST.getlist("line_id")
+    if not ids:
+        return 0
+
+    out_ofs = request.POST.getlist("line_out_of")
+    awardeds = request.POST.getlist("line_awarded")
+    comments = request.POST.getlist("line_comment")
+
+    changed = 0
+    for i, raw_id in enumerate(ids):
+        line = models.MarkLine.objects.filter(
+            pk=raw_id, submission=submission, voided=False
+        ).first()
+        if line is None:
+            continue
+        out_of = _decimal(out_ofs[i]) if i < len(out_ofs) else line.out_of
+        awarded = _decimal(awardeds[i]) if i < len(awardeds) else line.awarded
+        comment = (comments[i] if i < len(comments) else line.comment).strip()[:255]
+        if out_of == line.out_of and awarded == line.awarded and comment == line.comment:
+            continue
+        line.out_of = out_of
+        line.awarded = awarded
+        line.comment = comment
+        line.source = models.MarkSource.TEACHER
+        line.save()
+        changed += 1
+
+    if changed:
+        # awarded_marks is the single number the rest of the system reads,
+        # and once a breakdown exists it is the sum of the lines. Recompute
+        # it here or the released mark disagrees with the table under it.
+        submission.awarded_marks = submission.line_totals()["awarded"]
+    return changed
+
+
 def approvals_view(request, admin_site):
     """
     The teacher's sign-off list: marks the examiner has checked, waiting to
@@ -2277,11 +2457,14 @@ def approvals_view(request, admin_site):
         elif syllabus_ids is not None and submission.handout.syllabus_id not in syllabus_ids:
             raise PermissionDenied
         elif action == "approve":
+            edited = _apply_mark_edits(request, submission)
             submission.approve(user=request.user)
             messages.success(
                 request,
                 f"{submission.enrolment.student.full_name}'s work is approved and "
-                "is now in their account.",
+                "is now in their account."
+                + (f" {edited} mark line(s) were changed by you first; the "
+                   "examiner's originals are kept." if edited else ""),
             )
         elif action == "send_back":
             submission.send_back_to_examiner(
@@ -2334,6 +2517,7 @@ def approvals_view(request, admin_site):
             # eyes, and the screen says so rather than pretending otherwise.
             "self_check": bool(sub.marked_by_id) and sub.marked_by_id == request.user.id,
             "marks": totals if totals["count"] else None,
+            "lines": sub.lines(),
             "checked": [
                 {"name": a.title or a.original_filename,
                  "url": a.file.url if a.file else ""}
@@ -2353,6 +2537,11 @@ def approvals_view(request, admin_site):
         "title": "To approve",
         "classes": classes,
         "total": total,
+        # The checking screen belongs to the examiner. A class teacher who
+        # does not also hold that role cannot open it, so the link to it is
+        # only offered to someone it will actually work for — the work and
+        # the checked file are on this page either way.
+        "may_check": _may_check(request.user),
     }
     return TemplateResponse(request, "admin/approvals.html", context)
 
@@ -2425,7 +2614,7 @@ def checking_browse_view(request, admin_site):
                                                        "redo": 0, "handed_in": 0})
         bucket["handed_in"] += 1
         state = row["state"]
-        if state in (S.SUBMITTED, S.SENT_BACK):
+        if state in (S.SUBMITTED, S.GRADING, S.SENT_BACK):
             bucket["waiting"] += 1        # examiner must act
         elif state == S.RETURNED:
             bucket["redo"] += 1           # back with the student
@@ -2549,6 +2738,7 @@ def checking_queue_view(request, admin_site):
     waiting = (
         models.Submission.objects
         .filter(voided=False, state__in=[models.SubmissionState.SUBMITTED,
+                                        models.SubmissionState.GRADING,
                                         models.SubmissionState.SENT_BACK])
         .select_related("handout", "handout__syllabus", "handout__syllabus__subject",
                         "handout__syllabus__grade", "enrolment", "enrolment__student")
@@ -2596,6 +2786,13 @@ def check_submission_view(request, submission_id, admin_site):
         raise PermissionDenied
 
     handout = submission.handout
+
+    # Opening the script is what closes the student's window to replace it.
+    # Marking a file that changes underneath you is worse than a late
+    # correction, so the lock happens the moment someone looks — not when
+    # they finish. It stays in the queue either way; see needs_examiner.
+    if request.method == "GET":
+        submission.start_checking(user=request.user)
 
     if request.method == "POST":
         marks = (request.POST.get("awarded_marks") or "").strip() or None
@@ -2678,22 +2875,8 @@ def check_submission_view(request, submission_id, admin_site):
         "submission": submission,
         "handout": handout,
         "student": submission.enrolment.student,
-        "work": [
-            {
-                "name": a.title or a.original_filename,
-                "url": a.file.url if a.file else "",
-                "size": a.size_display,
-            }
-            for a in submission.work_files()
-        ],
-        "checked": [
-            {
-                "name": a.title or a.original_filename,
-                "url": a.file.url if a.file else "",
-                "size": a.size_display,
-            }
-            for a in submission.checked_files()
-        ],
+        "work": [_viewable(a) for a in submission.work_files()],
+        "checked": [_viewable(a) for a in submission.checked_files()],
         "scheme": _handout_files(handout, "scheme"),
         "sheet": _handout_files(handout, "handout"),
         "lines": submission.lines(),

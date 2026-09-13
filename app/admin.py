@@ -985,7 +985,9 @@ class LessonAdmin(AuditAdmin):
     list_filter = ("status", "date", "syllabus__grade", "syllabus__subject",
                    IncludeVoidedFilter)
     search_fields = ("title", "plan", "log")
-    raw_id_fields = ("syllabus", "slot", "teacher", "submitted_by", "reviewed_by")
+    # Only the two "who did the workflow" fields stay as id lookups; the
+    # three a teacher actually picks are plain dropdowns.
+    raw_id_fields = ("submitted_by", "reviewed_by")
     date_hierarchy = "date"
     inlines = (LectureItemInline, LessonTopicInline, AttachmentLinkInline)
     actions = AuditAdmin.actions + ("submit_selected", "approve_selected",
@@ -1012,6 +1014,30 @@ class LessonAdmin(AuditAdmin):
         "date_submitted", "submitted_by", "date_reviewed", "reviewed_by",
         "materials_link",
     )
+
+    # Adding a lesson is meant to be four fields, not seven tabs. The plan,
+    # the log, the timer, the topics and the files all belong to a lesson
+    # that already exists, so they only appear once you are editing one.
+    add_fieldsets = (
+        (None, {
+            "fields": ("syllabus", "date", "period", "title"),
+            "description": "Pick the class and the day. Everything else — the "
+                           "plan, the material, the log — is added afterwards, "
+                           "from the lesson itself or from My day.",
+        }),
+    )
+
+    def get_fieldsets(self, request, obj=None):
+        if obj is None:
+            return self.add_fieldsets
+        return super().get_fieldsets(request, obj)
+
+    def get_inline_instances(self, request, obj=None):
+        # No empty Lesson-topics / Attachment / Lecture tables while adding —
+        # there is nothing to put in them until the lesson is saved.
+        if obj is None:
+            return []
+        return super().get_inline_instances(request, obj)
 
     @admin.display(boolean=True, description="Logged")
     def logged(self, obj):

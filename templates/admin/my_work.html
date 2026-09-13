@@ -142,12 +142,21 @@
       </table>
     {% endif %}
 
+    {% if r.replacing %}
+      <p class="rounds">
+        Handed in {{ r.latest.time_submitted|date:"l j F, H:i" }} —
+        reference <code>{{ r.latest.code }}</code>.
+        <span class="soft">Uploaded the wrong file? You can replace it until the
+        deadline, or until someone starts checking it — whichever comes first.</span>
+      </p>
+    {% endif %}
+
     {% if r.can_submit %}
       <form class="hand" method="post" enctype="multipart/form-data">
         {% csrf_token %}
         <input type="hidden" name="handout" value="{{ r.handout.pk }}">
         <input type="file" name="file" accept="application/pdf,.pdf" required>
-        <button type="submit">Hand it in</button>
+        <button type="submit">{% if r.replacing %}Replace my upload{% else %}Hand it in{% endif %}</button>
       </form>
       <p class="rule">One PDF. If you have photos of your pages, put them into a
         single PDF first — your phone's scanning app does this.</p>

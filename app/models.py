@@ -2864,8 +2864,45 @@ class Submission(AuditModel):
 
     @property
     def needs_examiner(self):
-        """On the examiner's plate: never checked, or bounced back to them."""
-        return self.state in (SubmissionState.SUBMITTED, SubmissionState.SENT_BACK)
+        """
+        On the examiner's plate: waiting, open in front of them, or bounced back.
+
+        GRADING belongs here. It means an examiner has opened the script —
+        which locks the student out of replacing it — and a piece of work
+        someone opened and walked away from must stay in the queue, or it
+        is quietly lost.
+        """
+        return self.state in (
+            SubmissionState.SUBMITTED,
+            SubmissionState.GRADING,
+            SubmissionState.SENT_BACK,
+        )
+
+    def replaceable(self, at=None):
+        """
+        Whether the student may still overwrite this hand-in.
+
+        Two gates, and whichever closes first wins: the submission window,
+        and the examiner opening the script. The wrong file uploaded at
+        eleven at night is a mistake worth forgiving; a file that changes
+        underneath the person marking it is not.
+        """
+        if self.voided or self.state != SubmissionState.SUBMITTED:
+            return False
+        allowed, _why = self.handout.accepts_submission(self.enrolment, at=at)
+        return allowed
+
+    def start_checking(self, user=None):
+        """
+        The examiner has opened it, so the file may no longer change.
+
+        Only a first, never-checked hand-in moves. Anything already marked,
+        approved or sent back is well past this point and is left alone.
+        """
+        if self.state == SubmissionState.SUBMITTED:
+            self.state = SubmissionState.GRADING
+            self.save(update_fields=["state"])
+        return self
 
     @property
     def awaits_redo(self):

@@ -78,13 +78,25 @@ class Command(BaseCommand):
                     .filter(username__icontains=username.split("_")[0])
                     .values_list("username", flat=True)[:10]
                 )
+                # The hints below are printed to be pasted straight back into
+                # PowerShell, which does not run a .py from the current
+                # directory — so they carry the interpreter, exactly as the
+                # person will need to type it.
+                run = "venv\\Scripts\\python.exe manage.py"
                 raise CommandError(
                     f"No account called {username!r}.\n"
                     + (f"Did you mean one of: {', '.join(near)}\n" if near else "")
-                    + "\nTo create it as you set the password:\n"
-                    + f"    manage.py reset_login {username} --set --create\n"
+                    + "\nIf the staff and student records have not been imported "
+                    "yet, that is the thing to fix first — an account created by "
+                    "hand has no teacher record, no subjects and no role:\n"
+                    + f"    {run} seed_roles\n"
+                    + f"    {run} import_setup docs/setup_data.json\n"
+                    + "\nTo see what accounts do exist:\n"
+                    + f"    {run} account_status\n"
+                    + "\nTo create this one anyway, as you set the password:\n"
+                    + f"    {run} reset_login {username} --set --create\n"
                     + "To create accounts for every student at once:\n"
-                    + "    manage.py seed_student_logins --commit"
+                    + f"    {run} seed_student_logins --commit"
                 )
 
         groups = list(user.groups.values_list("name", flat=True))

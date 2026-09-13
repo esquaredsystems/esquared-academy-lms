@@ -1,11 +1,11 @@
 {% load i18n %}
-{# One checkbox, not a dropdown: unticked shows live rows only, ticked adds
+{% comment %} One checkbox, not a dropdown: unticked shows live rows only, ticked adds
    the voided ones alongside them.
 
    Rendered as a JET "filter popup" so its JS lifts the whole element into
    the toolbar beside the search box, the same place the select filters go.
    JET only converts <h3>/<ul> pairs into selects, so a checkbox has to
-   arrive this way. #}
+   arrive this way. {% endcomment %}
 {% with choice=choices.0 %}
 <div class="changelist-filter-popup include-voided-filter">
   <a href="#" class="changelist-filter-popup-toggle{% if choice.selected %} is-on{% endif %}">
