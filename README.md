@@ -56,6 +56,111 @@ export PKG_CONFIG_PATH="$(brew --prefix mysql-client)/lib/pkgconfig"
 pip install mysqlclient
 ```
 
+## Running it day to day (the school's deployment)
+
+The academy runs this on one Windows PC, not a server. Two programs have to
+be running for the site to work:
+
+| What | Where it runs | How you start it |
+|---|---|---|
+| **The database** (MySQL) | Inside Docker | Docker Desktop, container `esquared-mysql` |
+| **The web server** (Django) | A PowerShell window | `start_server.bat` |
+
+The web server is **not** a service. It runs only while its window is open.
+Close the window, restart the PC, or let the machine sleep, and the site
+stops — and the browser then says the page cannot be reached. That is
+normal, and starting it again is the whole fix.
+
+**Every day: starting the site.** Double-click `start_server.bat`. It
+starts the database, then the web server, and leaves the window open. Then
+go to `http://127.0.0.1:8000/admin/`. Leave that black window open while
+anyone is using the site; close it or press Ctrl+C to stop. Typed out
+instead:
+
+```powershell
+cd C:\Users\uzair\OneDrive\Documents\GitHub\esquared-academy-lms
+venv\Scripts\python.exe manage.py runserver
+```
+
+**After the code changes: `setup_academy.bat`.** Double-click it. It runs,
+in order: database migrations, the twelve roles, the import of staff,
+students, subjects and the timetable, student logins, this fortnight's
+lessons, and an account report — then asks you to set the teacher's
+password. Everything in it is safe to run again: each step checks what is
+already there and updates rather than duplicating. It writes
+`setup_log.txt` beside itself, so the result survives the window closing.
+Run it when you have just pulled new code, rebuilt the database, or
+changed `docs/setup_data.json`.
+
+**Passwords.** Accounts are created **without** a password and cannot be
+used until one is set — deliberately; no script ever invents a password.
+
+```powershell
+# set one account's password (prompts twice; nothing appears as you type)
+venv\Scripts\python.exe manage.py reset_login uxair.ahm --set
+
+# see who can actually log in and who is still waiting
+venv\Scripts\python.exe manage.py account_status
+venv\Scripts\python.exe manage.py account_status --pending
+venv\Scripts\python.exe manage.py account_status --role Student
+
+# create an account that doesn't exist yet, with a role, password in one go
+venv\Scripts\python.exe manage.py reset_login someone --set --create --role "Teaching Staff"
+```
+
+Teachers sign in with a name (`uxair.ahm`, `samyanconsole`, `sid.marium`,
+`adan.salahuddin`, `rabia.basaria`, `usama.khan`). Students sign in with
+their **admission number** (`26070108` and up). The full list is in
+`docs/Esquared_Academy_Logins.xlsx`.
+
+**Lessons and the timetable.** Lessons are built from the weekly timetable
+by `generate_lessons` — without them a teacher's **My day** is empty:
+
+```powershell
+venv\Scripts\python.exe manage.py generate_lessons --weeks 2
+venv\Scripts\python.exe manage.py generate_lessons --from 2026-09-21 --to 2026-10-02
+venv\Scripts\python.exe manage.py generate_lessons --weeks 2 --dry-run
+```
+
+Run it every couple of weeks to extend the term. It never touches a lesson
+a teacher has already written on. If a class has no lessons, the timetable
+itself is probably missing rows — fill in the **Timetable** sheet of
+`docs/Esquared_LMS_Setup.xlsx`, re-run `setup_academy.bat`, then
+`generate_lessons` again.
+
+**Tidying the roll.** The academy's roll is `docs/keep_students.txt` — 99
+admission numbers. Anything else with a student login (demo data, test
+accounts) is surplus:
+
+```powershell
+venv\Scripts\python.exe manage.py prune_students             # reports only
+venv\Scripts\python.exe manage.py prune_students --commit     # retires the surplus
+```
+
+Nothing is ever deleted — accounts are voided, so they can be brought back
+by unvoiding them in the admin.
+
+**When something goes wrong.**
+
+- *"This site can't be reached" / the page never loads* — the web server
+  isn't running. Double-click `start_server.bat`.
+- *The page loads but shows a database error* — the web server is fine;
+  MySQL isn't. Start Docker Desktop, wait for it to settle, then run
+  `start_server.bat` again.
+- *"No account called ..."* — that account doesn't exist yet. Run
+  `account_status` to see what does.
+- *A password is refused even though you just set it* — the account has
+  no role, so the admin login refuses it. Give it one:
+  `reset_login <name> --set --role "Teaching Staff"`.
+- *A yellow Django error page* — read the black PowerShell window; the
+  real error is printed there, and the last few lines are the part that
+  matters.
+
+Two rules worth keeping in mind: never put anything from `.env` into a
+message, a screenshot or a commit — the database password lives there —
+and treat the black PowerShell window as the source of truth: every page
+request appears in it, and every error prints there in full.
+
 ## Seeding the curriculum
 
 ```bash
