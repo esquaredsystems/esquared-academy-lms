@@ -11,8 +11,9 @@ command can never drift apart.
 Idempotent. Demo rows are found again by their DEMO- prefix, so removing
 never touches anything real, and loading twice changes nothing.
 
-Requires the curriculum: run seed_curriculum first, or there are no
-syllabi to enrol anyone into.
+Requires syllabi for the year: run `manage.py seed_subjects` (subjects and
+topics) and `manage.py set_syllabi` (syllabus rows) first, or there is
+nothing to enrol anyone into.
 """
 
 import random
@@ -72,7 +73,8 @@ class Command(BaseCommand):
         syllabi = models.Syllabus.objects.filter(academic_year=self.year)
         if not syllabi.exists():
             raise CommandError(
-                f"No syllabi for {self.year}. Run `manage.py seed_curriculum` first."
+                f"No syllabi for {self.year}. Run `manage.py seed_subjects` and "
+                f"`manage.py set_syllabi` first."
             )
 
         academy_classes = {g.short_name: g for g in models.AcademyClass.objects.all()}

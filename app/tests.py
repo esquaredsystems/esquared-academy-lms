@@ -26,7 +26,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from . import access, audit, columns, demo_data, entity_help, files, models
+from . import access, audit, columns, demo_data, entity_help, files, models, seed_data
 
 
 class Fixture(TestCase):
@@ -313,8 +313,8 @@ class ApiTests(Fixture):
         self.assertEqual(self.client.get("/api/docs/").status_code, 200)
 
 
-class SeedCurriculumTests(TestCase):
-    """The curriculum seed must be safe to re-run against a live database."""
+class SeedSubjectsTests(TestCase):
+    """The subject/topic catalogue seed must be safe to re-run against a live database."""
 
     @classmethod
     def setUpTestData(cls):
@@ -322,80 +322,38 @@ class SeedCurriculumTests(TestCase):
             "seeder", "seeder@example.com", "pw12345!"
         )
 
-    def seed(self, year=2026):
+    def seed(self):
         out = StringIO()
-        call_command("seed_curriculum", year=year, stdout=out)
+        call_command("seed_subjects", stdout=out)
         return out.getvalue()
 
     def test_seed_builds_the_expected_shape(self):
         self.seed()
 
+        self.assertEqual(models.Subject.objects.count(), len(seed_data.SUBJECTS))
+        self.assertEqual(models.Topic.objects.count(), len(seed_data.TOPICS))
+
+        top_level = sum(1 for t in seed_data.TOPICS if not t["parent"])
         self.assertEqual(
-            [g.short_name for g in models.AcademyClass.objects.all()],
-            ["E1", "E2", "S1", "S2", "S3"],
+            models.Topic.objects.filter(parent__isnull=True).count(), top_level
         )
-        self.assertTrue(models.AcademyClass.objects.get(short_name="S3").is_terminal)
-        self.assertEqual(models.Subject.objects.count(), 18)
-        # 156 syllabus sections plus 462 published sub-topics.
-        self.assertEqual(models.Topic.objects.count(), 618)
-        self.assertEqual(models.Topic.objects.filter(parent__isnull=False).count(), 462)
-        self.assertEqual(models.Topic.objects.filter(parent__isnull=True).count(), 156)
-        self.assertEqual(models.Syllabus.objects.filter(academic_year=2026).count(), 48)
 
     def test_seed_is_idempotent(self):
         self.seed()
-        before = (
-            models.AcademyClass.objects.count(), models.Subject.objects.count(),
-            models.Topic.objects.count(), models.Syllabus.objects.count(),
-            models.SyllabusTopic.objects.count(),
-        )
+        before = (models.Subject.objects.count(), models.Topic.objects.count())
 
-        output = self.seed()
+        self.seed()
 
-        after = (
-            models.AcademyClass.objects.count(), models.Subject.objects.count(),
-            models.Topic.objects.count(), models.Syllabus.objects.count(),
-            models.SyllabusTopic.objects.count(),
-        )
+        after = (models.Subject.objects.count(), models.Topic.objects.count())
         self.assertEqual(before, after)
-        self.assertIn("created    0", output)
 
-    def test_a_subject_carries_both_stages_without_collision(self):
+    def test_every_topic_resolves_its_subject_and_parent(self):
         self.seed()
 
-        maths = models.Subject.objects.get(short_name="MATH")
-
-        self.assertEqual(
-            models.Topic.objects.filter(
-                subject=maths, short_name__startswith="LS-", parent__isnull=True
-            ).count(),
-            4,
-        )
-        self.assertEqual(
-            models.Topic.objects.filter(
-                subject=maths, short_name__startswith="OL-", parent__isnull=True
-            ).count(),
-            9,
-        )
-
-    def test_terminal_class_is_the_only_one_with_electives(self):
-        self.seed()
-
-        electives = models.Syllabus.objects.filter(academic_year=2026, is_core=False)
-
-        self.assertEqual({s.academy_class.short_name for s in electives}, {"S3"})
-        self.assertEqual(electives.count(), 11)
-
-    def test_a_second_year_reuses_the_catalogue(self):
-        self.seed(2026)
-        subjects_before = models.Subject.objects.count()
-        topics_before = models.Topic.objects.count()
-
-        self.seed(2027)
-
-        self.assertEqual(models.Subject.objects.count(), subjects_before)
-        self.assertEqual(models.Topic.objects.count(), topics_before)
-        self.assertEqual(models.Syllabus.objects.filter(academic_year=2027).count(), 48)
+        for topic in models.Topic.objects.filter(parent__isnull=False).select_related(
+            "parent"
+        ):
+            self.assertEqual(topic.parent.subject_id, topic.subject_id)
 
 
 class AuditBlockTests(Fixture):

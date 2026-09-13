@@ -84,7 +84,8 @@ class Command(BaseCommand):
         syllabus = models.Syllabus.objects.filter(voided=False).first()
         if syllabus is None:
             self.stdout.write(self.style.ERROR(
-                "No syllabus exists yet. Run `manage.py seed_curriculum` first."
+                "No syllabus exists yet. Run `manage.py seed_subjects` and "
+                "`manage.py set_syllabi` first."
             ))
             return
 
