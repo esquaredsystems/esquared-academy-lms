@@ -28,6 +28,8 @@ from django.db import transaction
 from django.utils.text import slugify
 
 from app import access, models
+from app.attribute_setup import ensure_attribute_types
+from app.role_setup import ensure_roles
 
 _STUDENT_ID_TYPE_MAP = {"cnic": "cnic", "b-form": "b_form", "bform": "b_form", "passport": "passport"}
 
@@ -37,10 +39,9 @@ def set_student_attribute(student, short_name, raw_value):
     Set (or clear) a StudentAttribute by its type's short_name.
 
     Replaces the direct field assignment this helper's callers used before
-    national_id_type/guardian_contact_2 became attributes. The attribute
-    type must already exist (see the seed_attribute_types command) — a
-    workbook value for a type that isn't set up is silently skipped rather
-    than raising, since import_setup runs unattended.
+    national_id_type/guardian_contact_2 became attributes. A workbook value
+    for a type that isn't set up is silently skipped rather than raising,
+    since import_setup runs unattended.
     """
     attribute_type = models.StudentAttributeType.objects.filter(short_name=short_name).first()
     if attribute_type is None:
@@ -231,6 +232,11 @@ class Command(BaseCommand):
         ))
 
         with transaction.atomic():
+            ensure_roles()
+            admin = models.AppUser.objects.filter(is_superuser=True).order_by("id").first()
+            if admin is None:
+                raise CommandError("No superuser exists; run migrate first.")
+            ensure_attribute_types(admin)
             self.academy_classes = self.do_academy_classes(wb)
             self.subjects = self.do_subjects(wb)
             self.teachers = self.do_teachers(wb)
@@ -352,7 +358,7 @@ class Command(BaseCommand):
         user.save()
         group = Group.objects.filter(name=group_name).first()
         if group is None:
-            self.warn(f"role {group_name!r} does not exist — run seed_roles first")
+            self.warn(f"role {group_name!r} does not exist — run import_setup first")
         else:
             user.groups.add(group)
         return user

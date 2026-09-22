@@ -22,11 +22,11 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "lms.settings"); django.setup()
 from django.test.utils import setup_test_environment
 from django.test.runner import DiscoverRunner
 setup_test_environment(); r=DiscoverRunner(verbosity=0,interactive=False); old=r.setup_databases()
-from django.core.management import call_command
 from django.contrib.auth.models import Group
 from django.test import Client
 from app import models
-call_command("seed_roles", verbosity=0)
+from app.role_setup import ensure_roles
+ensure_roles()
 
 g = models.AcademyClass.objects.create(short_name="S1", full_name="Senior 1", level=3, sort_order=3)
 sub = models.Subject.objects.create(short_name="ENG", full_name="English")

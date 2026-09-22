@@ -13,7 +13,6 @@ URL configuration for the lms project.
     /admin/checking/   the examiner's queue of work to check
     /admin/my-work/    the student's side: what is open, and handing it in
     /admin/app/        redirects home; the app index duplicated it
-    /admin/demo/       load or remove the demo school
     /admin/app/attachment/upload/   drag-and-drop uploader
     /media/            uploaded files (development only — see README)
     /api/              REST API (see app/urls.py for the resource list)
@@ -29,7 +28,6 @@ from django.contrib import admin
 from django.urls import include, path
 
 from app.admin_views import (
-    demo_view,
     handout_extend_view,
     handout_print_view,
     handout_view,
@@ -193,11 +191,6 @@ urlpatterns = [
         "admin/approvals/",
         admin.site.admin_view(lambda request: approvals_view(request, admin.site)),
         name="approvals",
-    ),
-    path(
-        "admin/demo/",
-        admin.site.admin_view(lambda request: demo_view(request, admin.site)),
-        name="demo",
     ),
     path("admin/", admin.site.urls),
     path("api/", include("app.urls")),

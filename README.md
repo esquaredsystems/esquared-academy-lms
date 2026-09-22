@@ -9,9 +9,7 @@ pip install -r requirements.txt
 cp .env.example .env          # then fill in the MySQL credentials
 mysql -e "CREATE DATABASE esquared_lms CHARACTER SET utf8mb4"   # or: docker compose up -d db
 python manage.py migrate      # also creates the admin / admin superuser
-python manage.py seed_roles   # the six roles
-python manage.py seed_attribute_types   # the optional-field/answer-key attribute types
-python manage.py seed_curriculum
+python manage.py import_setup docs/setup_data.json
 python manage.py runserver
 ```
 
@@ -64,35 +62,12 @@ be running for the site to work:
 
 | What | Where it runs | How you start it |
 |---|---|---|
-| **The database** (MySQL) | Inside Docker | Docker Desktop, container `esquared-mysql` |
-| **The web server** (Django) | A PowerShell window | `start_server.bat` |
+| **The application** (Django + MySQL) | Docker Desktop | `run.bat` |
 
-The web server is **not** a service. It runs only while its window is open.
-Close the window, restart the PC, or let the machine sleep, and the site
-stops — and the browser then says the page cannot be reached. That is
-normal, and starting it again is the whole fix.
-
-**Every day: starting the site.** Double-click `start_server.bat`. It
-starts the database, then the web server, and leaves the window open. Then
-go to `http://127.0.0.1:8000/admin/`. Leave that black window open while
-anyone is using the site; close it or press Ctrl+C to stop. Typed out
-instead:
-
-```powershell
-cd C:\Users\uzair\OneDrive\Documents\GitHub\esquared-academy-lms
-venv\Scripts\python.exe manage.py runserver
-```
-
-**After the code changes: `setup_academy.bat`.** Double-click it. It runs,
-in order: database migrations, the six roles, the attribute types
-(the answer-key fields on a question, and a student's optional fields —
-see "Attribute types" below), the import of staff, students, subjects and
-the timetable, student logins, this fortnight's lessons, and an account
-report — then asks you to set the teacher's password. Everything in it is safe to run again: each step checks what is
-already there and updates rather than duplicating. It writes
-`setup_log.txt` beside itself, so the result survives the window closing.
-Run it when you have just pulled new code, rebuilt the database, or
-changed `docs/setup_data.json`.
+**Starting the site.** Double-click `run.bat`. It builds the Docker image,
+starts the database and application containers in the background, and runs
+static collection and migrations before starting Gunicorn. Open
+`http://127.0.0.1:8000/admin/`.
 
 **Passwords.** Accounts are created **without** a password and cannot be
 used until one is set — deliberately; no script ever invents a password.
@@ -127,28 +102,16 @@ venv\Scripts\python.exe manage.py generate_lessons --weeks 2 --dry-run
 Run it every couple of weeks to extend the term. It never touches a lesson
 a teacher has already written on. If a class has no lessons, the timetable
 itself is probably missing rows — fill in the **Timetable** sheet of
-`docs/Esquared_LMS_Setup.xlsx`, re-run `setup_academy.bat`, then
+`docs/Esquared_LMS_Setup.xlsx`, re-import the setup workbook, then
 `generate_lessons` again.
-
-**Tidying the roll.** The academy's roll is `docs/keep_students.txt` — 99
-admission numbers. Anything else with a student login (demo data, test
-accounts) is surplus:
-
-```powershell
-venv\Scripts\python.exe manage.py prune_students             # reports only
-venv\Scripts\python.exe manage.py prune_students --commit     # retires the surplus
-```
-
-Nothing is ever deleted — accounts are voided, so they can be brought back
-by unvoiding them in the admin.
 
 **When something goes wrong.**
 
 - *"This site can't be reached" / the page never loads* — the web server
-  isn't running. Double-click `start_server.bat`.
+  isn't running. Double-click `run.bat`.
 - *The page loads but shows a database error* — the web server is fine;
   MySQL isn't. Start Docker Desktop, wait for it to settle, then run
-  `start_server.bat` again.
+  `run.bat` again.
 - *"No account called ..."* — that account doesn't exist yet. Run
   `account_status` to see what does.
 - *A password is refused even though you just set it* — the account has
@@ -163,17 +126,16 @@ message, a screenshot or a commit — the database password lives there —
 and treat the black PowerShell window as the source of truth: every page
 request appears in it, and every error prints there in full.
 
-## Seeding the curriculum
+## Curriculum and setup data
 
 ```bash
-python manage.py seed_curriculum              # current calendar year
-python manage.py seed_curriculum --year 2027
-python manage.py seed_curriculum --dry-run
+python manage.py import_setup docs/setup_data.json
+python manage.py import_setup docs/setup_data.json --dry-run
 ```
 
-Loads the Cambridge curriculum as taught in Pakistan: five classes (E1, E2 =
-Lower Secondary stages 7–8; S1–S3 = the O Level programme, S3 terminal), 18
-subjects, 618 topics and 48 syllabi for the year — 348 syllabus/topic links.
+The setup workbook is the source of truth for classes, subjects, syllabi,
+staff, students and the timetable. Re-importing it updates existing rows
+instead of duplicating them.
 
 156 of those topics are top-level syllabus sections; the other 462 are
 sub-topics, seeded wherever Cambridge publishes a second level:
@@ -217,11 +179,6 @@ seeded, matching every other subject.
 
 ## Attribute types
 
-```bash
-python manage.py seed_attribute_types
-python manage.py seed_attribute_types --dry-run
-```
-
 Two entities carry optional fields as attributes rather than columns, on the
 model OpenMRS uses for `location`/`location_attribute_type`/
 `location_attribute`: `Question` (the true/false and numeric answer-key
@@ -233,11 +190,8 @@ narrower than OpenMRS's pluggable datatype classes) and an `<Entity>Attribute`
 table holding one value per entity per type, stored as text and resolved to
 a real Python value through the type's datatype (`app/attributes.py`).
 
-`seed_attribute_types` creates the initial types — the ones a fresh install
-needs to behave like the old fixed-column schema. It is idempotent, matched
-on each type's `short_name`, so editing a label or a `datatype_config` in
-`app/management/commands/seed_attribute_types.py` and re-running it updates
-the existing row rather than duplicating it.
+The setup import creates the initial types — the ones a fresh install needs
+to behave like the old fixed-column schema — and updates them idempotently.
 
 Adding a new optional field to Question or Student from here on is a new
 attribute type — a row added through the admin (Question attribute types /
@@ -304,7 +258,7 @@ the exceptions. Re-marking updates rather than duplicating.
 
 ## Roles
 
-Six roles, created by `python manage.py seed_roles` as Django groups, so they
+Six roles, created by `import_setup` as Django groups, so they
 work in the admin natively and in the API through `app.access.RolePermission`:
 
 | Role | Reach |

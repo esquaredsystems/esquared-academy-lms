@@ -9,6 +9,7 @@ import io
 import os
 import re
 import tempfile
+import unittest
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
@@ -26,7 +27,8 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from . import access, audit, columns, demo_data, entity_help, files, models, seed_data
+from . import access, audit, columns, entity_help, files, models
+from .role_setup import ensure_roles
 
 
 class Fixture(TestCase):
@@ -311,49 +313,6 @@ class ApiTests(Fixture):
     def test_schema_and_docs_are_served(self):
         self.assertEqual(self.client.get("/api/schema/").status_code, 200)
         self.assertEqual(self.client.get("/api/docs/").status_code, 200)
-
-
-class SeedSubjectsTests(TestCase):
-    """The subject/topic catalogue seed must be safe to re-run against a live database."""
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = models.AppUser.objects.create_superuser(
-            "seeder", "seeder@example.com", "pw12345!"
-        )
-
-    def seed(self):
-        out = StringIO()
-        call_command("seed_subjects", stdout=out)
-        return out.getvalue()
-
-    def test_seed_builds_the_expected_shape(self):
-        self.seed()
-
-        self.assertEqual(models.Subject.objects.count(), len(seed_data.SUBJECTS))
-        self.assertEqual(models.Topic.objects.count(), len(seed_data.TOPICS))
-
-        top_level = sum(1 for t in seed_data.TOPICS if not t["parent"])
-        self.assertEqual(
-            models.Topic.objects.filter(parent__isnull=True).count(), top_level
-        )
-
-    def test_seed_is_idempotent(self):
-        self.seed()
-        before = (models.Subject.objects.count(), models.Topic.objects.count())
-
-        self.seed()
-
-        after = (models.Subject.objects.count(), models.Topic.objects.count())
-        self.assertEqual(before, after)
-
-    def test_every_topic_resolves_its_subject_and_parent(self):
-        self.seed()
-
-        for topic in models.Topic.objects.filter(parent__isnull=False).select_related(
-            "parent"
-        ):
-            self.assertEqual(topic.parent.subject_id, topic.subject_id)
 
 
 class AuditBlockTests(Fixture):
@@ -684,7 +643,7 @@ class RoleTests(Fixture):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        call_command("seed_roles", stdout=StringIO())
+        ensure_roles()
 
         cls.enrolment = models.Enrolment.objects.create(
             student=cls.student, academy_class=cls.academy_class, academic_year=2026, created_by=cls.user
@@ -751,7 +710,7 @@ class RoleTests(Fixture):
         They used to be split (Teaching Staff / Paper Setter) so a teacher
         who also drafted papers needed both roles; the assertion here is
         that a Teacher account reaches the question bank directly, with no
-        second role required — see the Teacher entry in seed_roles.py.
+        second role required — see the Teacher role configuration.
         """
         self.assertEqual(
             self.api(self.teacher_user).get("/api/questions/").status_code, 200
@@ -971,80 +930,6 @@ class TopicHierarchyTests(Fixture):
         self.assertEqual(len(children.data), 1)
         self.assertEqual(children.data[0]["full_name"], "Loops")
         self.assertTrue(all(t["parent"] is None for t in roots.data["results"]))
-
-    def test_the_seeded_maths_syllabus_is_complete(self):
-        call_command("seed_curriculum", year=2026, stdout=StringIO())
-
-        maths = models.Subject.objects.get(short_name="MATH")
-        sections = models.Topic.objects.filter(
-            subject=maths, short_name__startswith="OL-", parent__isnull=True
-        ).order_by("sort_order")
-
-        self.assertEqual(
-            [s.full_name for s in sections],
-            ["Number", "Algebra and graphs", "Coordinate geometry", "Geometry",
-             "Mensuration", "Trigonometry", "Transformations and vectors",
-             "Probability", "Statistics"],
-        )
-        self.assertEqual(
-            [s.children.count() for s in sections], [18, 12, 7, 8, 5, 4, 4, 3, 7]
-        )
-        self.assertEqual(
-            models.Topic.objects.filter(
-                subject=maths, short_name__startswith="OL-", parent__isnull=False
-            ).count(),
-            68,
-        )
-
-    def test_maths_sub_topic_numbering_is_contiguous(self):
-        call_command("seed_curriculum", year=2026, stdout=StringIO())
-
-        maths = models.Subject.objects.get(short_name="MATH")
-        for section in models.Topic.objects.filter(
-            subject=maths, short_name__startswith="OL-", parent__isnull=True
-        ):
-            number = section.short_name.removeprefix("OL-")
-            expected = [
-                f"OL-{number}.{i}"
-                for i in range(1, section.children.count() + 1)
-            ]
-            actual = [c.short_name for c in section.children.order_by("sort_order")]
-
-            self.assertEqual(actual, expected, f"section {number}")
-
-    def test_english_carries_both_stages_nested(self):
-        call_command("seed_curriculum", year=2026, stdout=StringIO())
-
-        english = models.Subject.objects.get(short_name="ENG")
-
-        def section(short_name):
-            return models.Topic.objects.get(subject=english, short_name=short_name)
-
-        # O Level 1123 publishes no topic list; its assessment objectives are
-        # the named breakdown.
-        self.assertEqual(section("OL-1").children.count(), 5)   # AO1 Reading, R1-R5
-        self.assertEqual(section("OL-2").children.count(), 5)   # AO2 Writing, W1-W5
-        # Lower Secondary 0861 publishes sub-strands, by reporting code.
-        self.assertEqual(section("LS-1").children.count(), 6)
-        self.assertEqual(section("LS-2").children.count(), 6)
-        self.assertEqual(section("LS-3").children.count(), 5)
-        self.assertEqual(
-            section("LS-3").children.order_by("sort_order").first().full_name,
-            "Making yourself understood",
-        )
-
-    def test_the_seeded_geography_topics_are_nested(self):
-        call_command("seed_curriculum", year=2026, stdout=StringIO())
-
-        theme_two = models.Topic.objects.get(
-            subject__short_name="GEO", short_name="OL-2"
-        )
-        rivers = models.Topic.objects.get(subject__short_name="GEO", short_name="OL-2.2")
-
-        self.assertEqual(rivers.parent, theme_two)
-        self.assertEqual(theme_two.children.count(), 5)
-        self.assertEqual(rivers.full_path, "Theme 2: The natural environment › Rivers")
-
 
 class TopicParentPickerTests(Fixture):
     """The parent picker only ever offers valid parents."""
@@ -1415,6 +1300,7 @@ class IncludeVoidedEverywhereTests(Fixture):
         self.assertNotIn('id="include-voided-toggle"', body)
 
 
+@unittest.skip("The demo management command and admin page were removed.")
 class DemoDataTests(TestCase):
     """The demo school: three teachers, twenty students, the school's rules."""
 
@@ -1423,13 +1309,9 @@ class DemoDataTests(TestCase):
         cls.user = models.AppUser.objects.create_superuser(
             "demoadmin", "demo@example.com", "pw12345!"
         )
-        call_command("seed_roles", stdout=StringIO())
-        call_command("seed_curriculum", year=2026, stdout=StringIO())
 
     def load(self):
-        out = StringIO()
-        call_command("seed_demo", year=2026, stdout=out)
-        return out.getvalue()
+        self.skipTest("The demo management command was removed.")
 
     def demo_students(self):
         return models.Student.objects.filter(admission_no__startswith=demo_data.PREFIX)
@@ -1530,7 +1412,7 @@ class DemoDataTests(TestCase):
         subjects_before = models.Subject.objects.count()
         topics_before = models.Topic.objects.count()
 
-        call_command("seed_demo", year=2026, remove=True, stdout=StringIO())
+        self.skipTest("The demo management command was removed.")
 
         self.assertEqual(self.demo_students().count(), 0)           # live view
         self.assertEqual(
@@ -1545,7 +1427,7 @@ class DemoDataTests(TestCase):
     def test_removing_suspends_the_teacher_logins(self):
         self.load()
 
-        call_command("seed_demo", year=2026, remove=True, stdout=StringIO())
+        self.skipTest("The demo management command was removed.")
 
         for row in demo_data.TEACHERS:
             account = models.AppUser.objects.get(username=row["username"])
@@ -1559,10 +1441,10 @@ class DemoDataTests(TestCase):
         for syllabus in models.Syllabus.objects.filter(academic_year=2026):
             syllabus.void(user=self.user, reason="test")
 
-        with self.assertRaises(CommandError):
-            call_command("seed_demo", year=2026, stdout=StringIO())
+        self.skipTest("The demo management command was removed.")
 
 
+@unittest.skip("The demo management command and admin page were removed.")
 class DemoPageTests(TestCase):
     """The Demo entry in the side menu, and the page behind it."""
 
@@ -1571,7 +1453,6 @@ class DemoPageTests(TestCase):
         cls.user = models.AppUser.objects.create_superuser(
             "pageadmin", "page@example.com", "pw12345!"
         )
-        call_command("seed_curriculum", year=2026, stdout=StringIO())
 
     def setUp(self):
         self.client = Client()
@@ -2143,8 +2024,7 @@ class DemoMarkTests(DemoDataTests):
             .order_by("id").values_list("topic_id", "score_pct")[:40]
         )
 
-        call_command("seed_demo", year=2026, remove=True, stdout=StringIO())
-        call_command("seed_demo", year=2026, stdout=StringIO())
+        self.skipTest("The demo management command was removed.")
 
         second = list(
             models.TopicResult.objects
@@ -2156,7 +2036,7 @@ class DemoMarkTests(DemoDataTests):
     def test_removing_voids_the_marks_too(self):
         self.load()
 
-        call_command("seed_demo", year=2026, remove=True, stdout=StringIO())
+        self.skipTest("The demo management command was removed.")
 
         self.assertEqual(
             models.TopicResult.objects.filter(

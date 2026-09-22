@@ -1,9 +1,6 @@
 """
 Admin pages that are not tied to one model.
 
-  * Demo      — loads or removes the demo school. It runs the same
-                `seed_demo` management command the terminal does, so the
-                button and the command can never behave differently.
   * My day    — a teacher's own screen: today's lessons and what to do
                 with them. The model lists are a filing cabinet; this is
                 the page someone actually opens at 7.40am.
@@ -19,21 +16,18 @@ Admin pages that are not tied to one model.
 """
 
 from datetime import date, datetime, timedelta
-from io import StringIO
-
 from django.contrib import messages
 from decimal import Decimal, InvalidOperation
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
-from django.core.management import call_command
 from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils import timezone
 
-from . import access, demo_data, files as app_files, grading, models
+from . import access, files as app_files, grading, models
 
 
 def _current_year():
@@ -47,48 +41,6 @@ def _current_year():
     today = timezone.localdate()
     start = today.year if today.month >= 7 else today.year - 1
     return int(f"{start % 100:02d}{(start + 1) % 100:02d}")
-
-
-def _counts(year):
-    prefix = demo_data.PREFIX
-    students = models.Student.objects.filter(admission_no__startswith=prefix)
-    teachers = models.Teacher.objects.filter(staff_no__startswith=prefix)
-    return {
-        "teachers": teachers.count(),
-        "students": students.count(),
-        "enrolments": models.Enrolment.objects.filter(
-            student__in=students, academic_year=year
-        ).count(),
-        "choices": models.StudentSubject.objects.filter(
-            enrolment__student__in=students
-        ).count(),
-        "assignments": models.TeachingAssignment.objects.filter(
-            teacher__in=teachers
-        ).count(),
-        "marks": models.TopicResult.objects.filter(
-            student_subject__enrolment__student__in=students
-        ).count(),
-    }
-
-
-def _plan(year):
-    """What the demo will look like, class by class."""
-    rows = []
-    for academy_class in models.AcademyClass.objects.order_by("sort_order"):
-        students = [s for s in demo_data.STUDENTS if s["academy_class"] == academy_class.short_name]
-        syllabi = models.Syllabus.objects.filter(academy_class=academy_class, academic_year=year)
-        core = syllabi.filter(is_core=True).count()
-        if academy_class.is_terminal:
-            spread = sorted({core + len(s.get("electives", [])) for s in students})
-            subjects = f"{core} core + electives ({'–'.join(str(n) for n in (spread[0], spread[-1]))} total)"
-        else:
-            subjects = f"{core} core"
-        rows.append({
-            "academy_class": f"{academy_class.short_name} — {academy_class.full_name}",
-            "students": len(students),
-            "subjects": subjects,
-        })
-    return rows
 
 
 # ---------------------------------------------------------------------
@@ -115,46 +67,6 @@ def _may_open_teaching_screens(user):
             user, access.TEACHER, access.ADMINISTRATOR,
         )
     )
-
-
-def demo_view(request, admin_site):
-    # Loading or removing the demo school rewrites data. Held to the
-    # accounts that may create students in the first place.
-    if not request.user.has_perm("app.add_student"):
-        raise PermissionDenied
-
-    year = int(request.POST.get("year") or request.GET.get("year") or date.today().year)
-
-    if request.method == "POST":
-        action = request.POST.get("action")
-        output = StringIO()
-        try:
-            if action == "remove":
-                call_command("seed_demo", year=year, remove=True, stdout=output)
-                messages.success(request, "Demo data removed. " + _summarise(output))
-            else:
-                call_command("seed_demo", year=year, stdout=output)
-                messages.success(request, "Demo data loaded. " + _summarise(output))
-        except Exception as exc:                      # surfaced, not swallowed
-            messages.error(request, str(exc))
-        return redirect("{}?year={}".format(reverse("demo"), year))
-
-    context = {
-        **admin_site.each_context(request),
-        "title": "Demo data",
-        "year": year,
-        "counts": _counts(year),
-        "loaded": _counts(year)["students"] > 0,
-        "curriculum_ready": models.Syllabus.objects.filter(academic_year=year).exists(),
-        "plan": _plan(year),
-        "demo_password": demo_data.DEMO_PASSWORD,
-    }
-    return TemplateResponse(request, "admin/demo.html", context)
-
-
-def _summarise(output):
-    lines = [line.strip() for line in output.getvalue().splitlines() if line.strip()]
-    return ", ".join(" ".join(line.split()) for line in lines) or "nothing to do."
 
 
 # ---------------------------------------------------------------------

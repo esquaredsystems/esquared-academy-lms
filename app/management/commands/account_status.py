@@ -89,7 +89,7 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.WARNING(
                     f"  {students.count() - linked} student(s) have no account yet — "
-                    f"run: manage.py seed_student_logins --commit"
+                    "create the missing student account in the admin"
                 )
             )
 

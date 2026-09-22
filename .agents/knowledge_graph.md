@@ -3,8 +3,8 @@ doc: agent-knowledge-graph
 project: esquared-academy-lms
 repo: esquaredsystems/esquared-academy-lms (private)
 generated: 2026-09-13
-generated_by: claude (assessment from scratch, ast-based structural extraction + manual read of every non-generated module; updated same day after the attribute-type refactor, then again after the Grade→AcademyClass rename, the 12→6 role consolidation, and the curriculum-widget admin reorg below; updated again after seed_curriculum was removed and replaced by seed_subjects, see §10/§12)
-covers_commit: 767f47e "Clutter removed" (docs/ cleanup: setup spreadsheets and the bulk-reset script were removed; docs/seed.xlsx and .github/workflows/deploy.yml were added) + uncommitted attribute-type refactor (Question config + Student optional fields → attribute types; see §5.8) + uncommitted Grade→AcademyClass rename, role consolidation, and admin UI reorg (see §4.2, §5.1, §5.3, §8) + uncommitted seed_curriculum removal / seed_subjects addition / seed_data.py rewrite (see §2, §10, §12)
+generated_by: claude (assessment from scratch; updated after the attribute-type refactor, Grade→AcademyClass rename, role consolidation, admin UI reorg, and management-command cleanup)
+covers_commit: 767f47e "Clutter removed" plus the current setup-import and management-command changes
 freshness_contract: see .agents/instructions.md — this file must be updated in the same turn/commit that changes the code it describes
 NOTE: do not confuse this file with the *in-app* feature also called "knowledge graph"/"knowledge map"
       (templates/admin/knowledge_graph.html, TopicViewSet.tree(), student subject_panel/knowledge_map_panel,
@@ -24,8 +24,8 @@ custom function-based "admin_views" pages bolted on for teacher/student/
 examiner workflows that don't fit the generic admin changelist/changeform.
 
 Real-world deployment: a single Windows PC at the school (see README.md's
-"Running it day to day" section, setup_academy.bat, start_server.bat). MySQL runs in Docker on that PC;
-`runserver` runs in a foreground PowerShell window — not a service. This is
+"Running it day to day" section and `run.bat`). MySQL and Django run in Docker
+on that PC. This is
 intentionally small-scale, not a cloud SaaS.
 
 Author's voice/style note (relevant when generating new code to match house
@@ -83,11 +83,6 @@ app/                     # the one Django app — everything lives here
   entity_help.py (600 lines) # ENTITY_HELP dict: summary/role/context/fields prose per model,
                               # shown behind the "?" button on every admin changelist.
                               # A test enforces every named field actually exists on the model.
-  demo_data.py   (133 lines) # deterministic fake school (3 teachers, 20 students, Karachi
-                              # names) for the /admin/demo/ page. Void-tagged with "DEMO-" prefix.
-  seed_data.py   (3615 lines) # static data used by seed_subjects: ACADEMY_CLASSES, plus
-                              # SUBJECTS/TOPICS generated from docs/seed.xlsx (12 subjects,
-                              # 388 topics) — see §10 and §12 (seed_curriculum removed 2026-09-13).
   check_row_scoping.py (120) # standalone security smoke test (NOT test*.py — see §11 for why).
   tests.py      (2266 lines) # Django TestCase suite. See §11.
   templatetags/academy.py    # custom template tags for the admin templates.
@@ -100,7 +95,7 @@ docs/                        # non-code: syllabi PDFs (cambridge_o_level_syllabi
                               # autograder integration contract doc. The old setup
                               # spreadsheets/JSON and the bulk-reset script were removed
                               # 2026-09-13 ("Clutter removed") — see §12.
-setup_academy.bat, start_server.bat, setup_log.txt   # Windows ops scripts (see README.md)
+run.bat                                             # Windows Docker deployment script
 docker-compose.yml           # MySQL 8.4 on port 3307 (for machines already running 5.7 on 3306)
 ```
 
@@ -288,7 +283,7 @@ unique_flags" → 0004-0006 added/populated/finalized `uuid`.
 `_format` column), `QuestionType` (binary/numeric/text),
 `ToleranceType` (absolute/relative/geometric — now unused as a model field;
 kept alive only as the source of `numeric_tolerance_type`'s
-`datatype_config` allow-list in `seed_attribute_types`), `SyllabusStatus`,
+`datatype_config` allow-list in `app.attribute_setup`), `SyllabusStatus`,
 `PromptStatus`, `LessonStatus`, `HandoutStatus`, `SubmissionState`,
 `TimerStatus`, `DayOfWeek` (Monday=0), `PaperPurpose` (quiz/assignment/exam/
 mock), `PaperStatus` (draft/locked/retired), `CohortPurpose`,
@@ -309,7 +304,7 @@ by a `StudentAttributeType` whose `datatype_config` is the
 
 Two independent layers:
 - **Model permissions** (Django's `add/change/delete/view_<model>`, held by
-  Groups, seeded by `manage.py seed_roles`) decide if a role may touch a
+  Groups, initialized by `manage.py import_setup`) decide if a role may touch a
   *table* at all. Enforced natively in the admin, and in the API by
   `RolePermission(DjangoModelPermissions)` — note DRF's stock class lets ANY
   authenticated user GET; this subclass requires `view_<model>` even for
@@ -328,7 +323,7 @@ Six roles as of 2026-09-13 (constants `access.ADMINISTRATOR`, `TEACHER`,
 `Non-academic Staff`, `Student`, `Guardian`, `Guest`). The merge:
 `Administrator` = the old Admin + Academic Admin + IT Administrator +
 Head of Department + Non-academic Staff, given `"all"` permissions in
-`seed_roles.ROLE_PERMISSIONS` (a strict superset of what any of the merged
+`app.role_setup.ROLE_PERMISSIONS` (a strict superset of what any of the merged
 roles had); `Teacher` = old Teaching Staff + Paper Setter (classroom
 teaching AND the question bank/draft papers — no longer two roles for one
 person); `Examiner` = old Marking Reviewer + Exam Operations (marking
@@ -477,7 +472,7 @@ pair, per an explicit design decision):
   `BinaryConfig`/`NumericConfig` tables. `QuestionAttributeType` adds
   `applies_to` (nullable `QuestionType` choice; null = any type).
   `QuestionAttribute` FKs `question`+`attribute_type`, unique together
-  (live rows). Seeded by `seed_attribute_types` with 12 types (4 binary:
+  (live rows). Initialized by `import_setup` with 12 types (4 binary:
   `binary_expected_value`/`binary_true_label`/`binary_false_label`/
   `binary_true_feedback`; 8 numeric: `numeric_expected_value`/
   `numeric_tolerance_type`/`numeric_tolerance`/`numeric_partial_band`/
@@ -500,7 +495,7 @@ rather than direct field assignment — the student row must already be
 saved (has a pk) before this is called.
 
 **Adding a new optional/descriptive field to Question or Student from
-here on is a new attribute type (admin, or a `seed_attribute_types.py`
+here on is a new attribute type (admin, or an entry in
 entry), not a migration.** The same recipe is intended for other
 entities' descriptive fields (`AcademyClass`/`Subject`/`Topic.description`,
 `Handout`'s free-text fields) as later follow-ups — not done yet, so
@@ -631,9 +626,8 @@ uses them:
 - **Notices**: `notice_board_view` (student-facing board),
   `post_notice_view` (Teacher/Administrator posting, gated by
   `_may_post_notices`).
-- **Ops/demo**: `demo_view` (/admin/demo/ — load/remove the fictional demo
-  school via `demo_data.py`, `_plan`/`_counts` build the preview before
-  committing).
+- **Ops/setup**: `import_setup` loads the workbook and initializes the
+  reference roles and attribute types used by the application.
 
 Helper naming convention: leading-underscore functions are private view-
 model builders local to one screen; none are imported elsewhere except
@@ -643,34 +637,18 @@ model builders local to one screen; none are imported elsewhere except
 
 | command | purpose |
 |---|---|
-| seed_roles | create the 6 role Groups + their model permissions (run once per fresh DB) |
-| seed_attribute_types | create the initial QuestionAttributeType/StudentAttributeType rows (12 + 2) — see §5.8; idempotent on `short_name` |
-| seed_subjects | load the Subject/Topic catalogue from seed_data.py (itself generated from docs/seed.xlsx — 12 subjects, 388 topics; idempotent, `--dry-run`, `--created-by`). Replaced seed_curriculum 2026-09-13 — see §12. Does NOT seed academy classes or syllabi (see set_syllabi below) |
-| seed_demo | load/remove the fictional demo school |
-| seed_today | put one realistic lesson on today's date (so My Day isn't empty in dev) |
-| seed_test_users | one test account per role for manual browser testing |
-| seed_student_logins | create login accounts for imported students |
-| import_setup | load the filled-in setup workbook (positional arg, default `docs/setup_data.json`) — the real onboarding path. **Its default input file no longer exists** (removed in the 2026-09-13 "Clutter removed" docs/ cleanup) — pass an explicit workbook path or restore the file before running with no args |
+| import_setup | load the setup workbook, initialize roles and attribute types, and create classes, subjects, syllabi, staff, students and timetable rows |
 | load_syllabus_content | load O-Level syllabus content into subjects/topics (default `docs/syllabus_content.json`). **That default file no longer exists** (same 2026-09-13 cleanup) — pass an explicit path or restore it |
 | generate_lessons | turn the weekly TimetableSlot pattern into real dated Lesson rows |
 | backfill_sheets | give pre-existing handouts a version-1 HandoutSheet retroactively |
-| set_subject_names, set_syllabi, set_syllabus_topics | one-off/data-fix commands for subject naming, per-year syllabus assignment, and syllabus↔topic linking |
-| prune_students, prune_subjects, prune_topics | VOID (never delete) rows no longer on the school's current list. `prune_students`'s default `--list` (`docs/keep_students.txt`) no longer exists (2026-09-13 cleanup) — pass `--list` explicitly. `prune_subjects`/`prune_topics`' hardcoded `KEEP` set still uses bare short_name codes (`ENG`, `MATH`, ...), which predate and don't match what `seed_subjects` now creates (composite `ENG-1123`, `MATH-4024`, ...) — see §12 |
 | account_status | report who can log in / still needs a password |
 | reset_login | show + optionally set one account's password |
 | reset_dashboards | clear saved Jet dashboard layouts so they rebuild from current code |
 | role_audit | print what each role can actually see, for manual review |
 
-Windows ops wrapper: `setup_academy.bat` runs migrate → seed_roles →
-seed_attribute_types → import_setup → seed_student_logins →
-generate_lessons → account_status in order, logs to setup_log.txt, is safe
-to re-run (idempotent by design of each command) — **except that as of
-2026-09-13 `import_setup`'s default input file (`docs/setup_data.json`) no
-longer exists** (see the table above), so this script will now fail at
-that step unless it's updated to pass an explicit workbook path or the
-file is restored. It also doesn't call `seed_subjects` — subjects/topics
-now need seeding separately. `start_server.bat` starts the Docker MySQL
-container then `runserver` in the foreground.
+Windows deployment: `run.bat` builds the image and starts the Docker
+application and MySQL containers in the background. The application
+container runs `collectstatic`, migrations, and Gunicorn on startup.
 
 # 11. Tests
 
@@ -678,9 +656,7 @@ container then `runserver` in the foreground.
 default). Notable classes: `Fixture` (shared base building a minimal
 class/subject/syllabus/enrolment set), `PaperVersioningTests`,
 `CountedAttemptTests`, `VoidingTests`, `ApiTests`, `SeedSubjectsTests`
-(replaced `SeedCurriculumTests` 2026-09-13 — asserts `seed_subjects`
-reproduces `seed_data.SUBJECTS`/`TOPICS` exactly, shape + idempotency +
-parent/subject consistency; see §12), `Audit*
+(the setup import is covered by command-level smoke checks), `Audit*
 Tests` (block/api/admin), `AttachmentTests`, `AttendanceTests`, `RoleTests`,
 `EntityHelp*Tests` (field-existence enforcement, see §5.7),
 `TopicHierarchyTests`/`TopicParentPickerTests`, `KnowledgeGraphTests` (this
@@ -712,16 +688,9 @@ Run tests: `python manage.py test` (sqlite) or
 **Known-broken as of 2026-09-13** (not yet fixed, see §12): 4 tests in
 `TopicHierarchyTests` and the `setUpTestData` of `DemoDataTests` (+ its
 subclass `DemoMarkTests`) and `DemoPageTests` still call
-`call_command("seed_curriculum", ...)`, which no longer exists —
-7 errors total out of 161 runnable tests. Not a quick fix: the
-`TopicHierarchyTests` cases assert the *old* 18-subject/LS-OL topic shape
-verbatim (including a Geography subject that no longer exists at all),
-and the Demo* fixtures need both a syllabus-seeding replacement (nothing
-currently seeds `Syllabus` rows for an arbitrary year — `set_syllabi.py`
-hardcodes year 2627 and a fixed subject list) and `app/demo_data.py`'s
-`TEACHERS[*]["teaches"]` updated off the old bare subject codes (`ENG`,
-`URD`, `PST`, `AMATH`, `SCI`, `BIO`, `GP`, ...), several of which no
-longer correspond to any subject.
+The demo data command and `/admin/demo/` page were removed. Setup data is
+loaded from the workbook through `import_setup`; tests construct only the
+fixtures needed for the behavior under test.
 
 # 12. Notable design decisions / gotchas an agent should not "fix"
 
@@ -779,38 +748,12 @@ longer correspond to any subject.
   numbers/names from before that date mean anything; the dev database
   must be dropped and recreated once, after which normal incremental
   migrations resume.
-- `seed_curriculum` was removed 2026-09-13 and replaced by
-  `seed_subjects` (see §10). Context: `docs/seed.xlsx` (Subjects/Topics/
-  Teachers/Students sheets) is now the source of truth for the subject
-  catalogue — 12 subjects the school actually teaches (not the old
-  generic 18-subject Cambridge list), with `Subject.short_name` in
-  composite `<code>-<id_number>` form (`MATH-4024`, `PST1-20591`,
-  `URDU-3248`, ...) and `id_number` as an int. `app/seed_data.py`'s
-  `SUBJECTS`/`TOPICS` were regenerated from that sheet in a new flat-list
-  shape (a list of dicts each, `TOPICS` entries carry `subject`/`parent`
-  short_name references resolved in dependency order by
-  `seed_subjects`) — this replaced the old `(subject_code, stage)`-keyed
-  dict shape and the `STAGE_LS`/`STAGE_OL`/`CURRICULUM`/`LS_CORE`/
-  `OL_CORE`/etc. machinery, all of which is gone. `seed_subjects` seeds
-  only `Subject`/`Topic`; academy classes and syllabi are no longer
-  bundled with it (`ACADEMY_CLASSES` in seed_data.py is currently
-  unconsumed by any command — reseed by hand if ever needed; syllabi are
-  `set_syllabi.py`'s job). `set_subject_names.py`, `prune_subjects.py`,
-  `prune_topics.py`, `set_syllabi.py`, `set_syllabus_topics.py` still
-  hardcode the *old* bare-code convention (`KEEP = {"ENG","MATH",...}`,
-  string `id_number` incl. slashed `"2059/01"`/`"2059/02"` for PST1/PST2,
-  `"Base (code)"` full_name) and have not been updated to match — as of
-  2026-09-13 the live DB's old data was truncated by the user, so
-  there's currently nothing for them to conflict with, but they'd need
-  updating to the composite convention before being usefully run again.
-- The 2026-09-13 "Clutter removed" commit deleted several `docs/` files
-  that some commands default to: `docs/setup_data.json` (`import_setup`'s 
-  positional default, also referenced in `generate_lessons`/
-  `reset_login` error hints), `docs/syllabus_content.json`
-  (`load_syllabus_content`'s `DEFAULT_PATH`), `docs/keep_students.txt`
-  (`prune_students`'s `DEFAULT_LIST`). Those commands still work but need
-  an explicit path now; `setup_academy.bat` was not updated and will fail
-  at its `import_setup` step until it is. See §10.
+- The setup workbook is now the source of truth for classes, subjects, syllabi,
+staff, students and timetable rows. `import_setup` updates those records
+idempotently and initializes the role groups and built-in attribute types.
+- The Docker deployment is started with `run.bat`; it rebuilds the image,
+  starts both containers, and lets the application container run static
+  collection, migrations, and Gunicorn.
 
 # 13. Related artifacts (already produced, don't regenerate blindly)
 

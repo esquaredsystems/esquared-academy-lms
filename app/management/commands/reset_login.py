@@ -89,14 +89,13 @@ class Command(BaseCommand):
                     + "\nIf the staff and student records have not been imported "
                     "yet, that is the thing to fix first — an account created by "
                     "hand has no teacher record, no subjects and no role:\n"
-                    + f"    {run} seed_roles\n"
+                    + f"    {run} import_setup docs/setup_data.json\n"
                     + f"    {run} import_setup docs/setup_data.json\n"
                     + "\nTo see what accounts do exist:\n"
                     + f"    {run} account_status\n"
                     + "\nTo create this one anyway, as you set the password:\n"
                     + f"    {run} reset_login {username} --set --create\n"
-                    + "To create accounts for every student at once:\n"
-                    + f"    {run} seed_student_logins --commit"
+                    + "Create student accounts individually in the admin."
                 )
 
         groups = list(user.groups.values_list("name", flat=True))

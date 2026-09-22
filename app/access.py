@@ -4,7 +4,7 @@ Roles, and what each one may see.
 Two layers, because one is not enough:
 
   * **Model permissions** decide whether a role may touch a table at all.
-    They live on Django groups, are seeded by `manage.py seed_roles`, and
+    They live on Django groups, initialized during `manage.py import_setup`, and
     are enforced in the admin natively and in the API by `RolePermission`.
 
   * **Row scoping** decides *which* rows of a permitted table a person

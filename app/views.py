@@ -46,7 +46,7 @@ INCLUDE_VOIDED = OpenApiParameter(
 class AuditedModelViewSet(viewsets.ModelViewSet):
     """Base viewset: soft deletion, audit stamping, voided-row filtering."""
 
-    # Model permissions come from the role's group (manage.py seed_roles);
+    # Model permissions come from the role's group (initialized by import_setup);
     # which rows the role then sees comes from access.scope_queryset.
     permission_classes = [IsAuthenticated, access.RolePermission]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]

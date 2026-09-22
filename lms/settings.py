@@ -414,10 +414,6 @@ JET_SIDE_MENU_ITEMS = [
         {"name": "app.answer", "permissions": ["app.view_answer"]},
         {"name": "app.evaluation", "permissions": ["app.view_evaluation"]},
     ]},
-    {"label": "Demo", "permissions": ["app.add_student"], "items": [
-        {"label": "Demo data", "url": {"type": "reverse", "name": "demo"},
-         "permissions": ["app.add_student"]},
-    ]},
     {"label": "Administration", "permissions": ["auth.view_group"], "items": [
         {"name": "app.appuser", "permissions": ["app.view_appuser"]},
         {"name": "auth.group", "permissions": ["auth.view_group"]},
